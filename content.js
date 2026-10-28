@@ -180,6 +180,26 @@
     return null;
   }
 
+  /** Find a visible player-bar button by exact aria-label. */
+  function barButton(labels) {
+    var scope = document.querySelector('ytmusic-player-bar');
+    if (!scope) return null;
+    for (var l = 0; l < labels.length; l++) {
+      var list = scope.querySelectorAll('button[aria-label="' + labels[l] + '"]');
+      for (var i = 0; i < list.length; i++) {
+        var rect = list[i].getBoundingClientRect();
+        if (rect.width && rect.height) return list[i];
+      }
+    }
+    return null;
+  }
+
+  function anyShuffleButton() {
+    var scope = document.querySelector('ytmusic-player-bar');
+    if (!scope) return null;
+    return scope.querySelector('button[aria-label*="huffle" i]');
+  }
+
   function isShuffleOn(button) {
     try {
       var pressed = button.getAttribute('aria-pressed');
@@ -327,6 +347,68 @@
         /* ignore */
       }
     }, 2500);
+  }
+
+  // ---------------------------------------------------------------------------
+  // transport
+  // ---------------------------------------------------------------------------
+  /* The popup drives playback by clicking YouTube Music's own controls, so the
+     page keeps its keyboard shortcuts, queue and play history in sync. */
+
+  function playerCommand(cmd) {
+    try {
+      if (cmd === 'playpause') {
+        var toggle = barButton(['Pause', 'Play']);
+        if (toggle) {
+          toggle.click();
+          return { ok: true, action: 'playpause' };
+        }
+        var video = videoEl || findVideo();
+        if (!video) return { ok: false, reason: 'no player' };
+        if (video.paused) {
+          var playing = video.play();
+          if (playing && playing.catch) playing.catch(function () {});
+        } else {
+          video.pause();
+        }
+        return { ok: true, action: 'playpause' };
+      }
+
+      if (cmd === 'next' || cmd === 'prev') {
+        var button = cmd === 'next'
+          ? barButton(['Next', 'Next song', 'Next track'])
+          : barButton(['Previous', 'Previous song', 'Previous track']);
+        if (!button) return { ok: false, reason: 'no ' + cmd + ' button' };
+        button.click();
+        return { ok: true, action: cmd };
+      }
+
+      if (cmd === 'shuffle') {
+        var shuffle = findShuffleButton() || anyShuffleButton();
+        if (!shuffle) return { ok: false, reason: 'no shuffle button' };
+        var next = !isShuffleOn(shuffle);
+        shufflePref = next;
+        saveShuffle(next);
+        shuffle.click();
+        return { ok: true, action: 'shuffle', shuffle: next };
+      }
+
+      return { ok: false, reason: 'unknown command' };
+    } catch (e) {
+      return { ok: false, reason: e && e.message ? e.message : 'command failed' };
+    }
+  }
+
+  function transportState() {
+    var video = videoEl || findVideo();
+    var shuffle = findShuffleButton() || anyShuffleButton();
+    return {
+      playing: !!(video && !video.paused),
+      paused: video ? video.paused : true,
+      currentTime: video && isFinite(video.currentTime) ? video.currentTime : 0,
+      duration: video && isFinite(video.duration) && video.duration > 0 ? video.duration : 0,
+      shuffle: shuffle ? isShuffleOn(shuffle) : null
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -780,11 +862,33 @@
     return sum / ((range[1] - range[0]) * 255);
   }
 
-  /** One frame of analyser data: 40 log-spaced bars + the 10 EQ band levels. */
+  function zeroList(length) {
+    var list = new Array(length);
+    for (var i = 0; i < length; i++) list[i] = 0;
+    return list;
+  }
+
+  /** One frame of analyser data (40 log-spaced bars + 10 EQ bands) plus the
+      transport state the popup needs for its progress bar and buttons. */
   function analyseFrame() {
-    if (!chain || chain.disposed) return { ok: false, reason: 'not attached' };
+    var transport = transportState();
+    var frame = {
+      ok: true,
+      attached: !!(chain && !chain.disposed),
+      level: 0,
+      bars: zeroList(SPECTRUM_BARS),
+      bands: zeroList(BAND_HZ.length),
+      paused: transport.paused,
+      playing: transport.playing,
+      currentTime: transport.currentTime,
+      duration: transport.duration,
+      shuffle: transport.shuffle,
+      enabled: config.enabled !== false
+    };
+
+    if (!chain || chain.disposed) return frame;
     var spectrum = chain.getSpectrum ? chain.getSpectrum() : null;
-    if (!spectrum) return { ok: false, reason: 'no analyser' };
+    if (!spectrum) return frame;
 
     var ctx = SoundChain.getContext ? SoundChain.getContext() : null;
     var sampleRate = ctx ? ctx.sampleRate : 48000;
@@ -801,14 +905,10 @@
       bands[b] = bandEnergy(spectrum, ranges.bands[b]);
     }
 
-    return {
-      ok: true,
-      level: chain.getLevel ? chain.getLevel() : 0,
-      bars: bars,
-      bands: bands,
-      paused: videoEl ? videoEl.paused : true,
-      enabled: config.enabled !== false
-    };
+    frame.level = chain.getLevel ? chain.getLevel() : 0;
+    frame.bars = bars;
+    frame.bands = bands;
+    return frame;
   }
 
   // Debug surface. Lives in the content script's isolated world, so page
@@ -828,9 +928,10 @@
           ad: adMuted,
           chainMuted: chain && !chain.disposed && chain.isMuted ? chain.isMuted() : null,
           shuffle: (function () {
-            var button = findShuffleButton();
+            var button = findShuffleButton() || anyShuffleButton();
             return button ? isShuffleOn(button) : null;
           })(),
+          transport: transportState(),
           config: config,
           lastError: SoundChain.lastError || null
         };
@@ -839,7 +940,8 @@
         scan();
         return true;
       },
-      frame: analyseFrame
+      frame: analyseFrame,
+      command: playerCommand
     };
   } catch (e) {
     /* debug surface must never break the extension */
@@ -861,6 +963,11 @@
 
       if (message.type === 'YTMSE_FRAME') {
         sendResponse(analyseFrame());
+        return false;
+      }
+
+      if (message.type === 'YTMSE_CMD') {
+        sendResponse(playerCommand(message.cmd));
         return false;
       }
 

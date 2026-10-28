@@ -4,7 +4,8 @@ A Manifest V3 extension for **Brave** (and other Chromium browsers) that puts a
 real audio chain on top of **YouTube Music**: a 10-band equalizer, bass and air
 shelves, punch compression, warmth saturation, stereo width, reverb and echo —
 all live while the track plays, with a spectrum that stays inside the EQ card,
-saved profiles, remembered shuffle, and ads silenced.
+saved profiles, remembered shuffle, playback controls with a smooth progress bar,
+and ads silenced.
 
 ![Popup](docs/popup.png)
 
@@ -25,6 +26,8 @@ saved profiles, remembered shuffle, and ads silenced.
 | **On/off switch** | Silences the effects instantly and restores them with one click; the chain stays connected, so audio never drops out |
 | **Live visuals** | A spectrum graph behind the EQ faders only — never behind the rest of the popup (frozen when reduced motion is requested) |
 | **Profiles** | Save the current settings under a name, switch between them instantly, delete with a two-click confirmation |
+| **Transport** | Previous, play/pause, next and shuffle, driving YouTube Music's own player-bar buttons so the queue and history stay in sync |
+| **Progress** | A glowing progress bar with a soft shimmer, interpolated every screen frame so it glides between telemetry frames, with elapsed and total time |
 | **Shuffle memory** | YouTube Music forgets shuffle on reload; the extension restores your last explicit choice on every new page |
 | **Ad silence** | Ads are detected in the player and muted through the chain, then unmuted when the music returns. The site's own volume is never touched |
 | **Persistence** | Settings, profiles and the shuffle preference live in `chrome.storage.local` and apply to every open tab immediately |
@@ -76,6 +79,13 @@ A few details that matter:
 * **The analyser feeds the visuals**, and doubles as a health check: the popup
   polls one frame roughly eighteen times a second to draw the spectrum behind
   the faders, and the debug hook uses the same frame to prove audio is flowing.
+* **The popup drives the page, not a second player.** Play/pause, next, previous
+  and shuffle click YouTube Music's own player-bar buttons, so the queue,
+  keyboard shortcuts and play history stay in sync. The same analyser frame
+  carries `currentTime`, `duration`, `paused` and `shuffle`; the popup
+  extrapolates the progress with `requestAnimationFrame` and eases small
+  corrections, which keeps the bar smooth between the ~18 Hz frames. A seek or
+  a new track snaps rather than sweeping.
 * **Shuffle state is read from the player-bar icon.** The player-bar button has
   no ARIA state: ON is white (`255,255,255`) and OFF is grey (`144,144,144`).
   Some newer player buttons elsewhere do expose `aria-pressed`, so the keeper
@@ -122,6 +132,13 @@ Click a preset chip to jump to a known-good starting point:
 | Hall | Long 3.2 s tail, wide and darker |
 | Warm | Bass +5 dB, −3 dB air, 55 % saturation, short room |
 | Night | Compressed and darker, with the top end pulled back |
+
+**Playback.** The strip under the header mirrors the current track: previous,
+play/pause, next, shuffle, and elapsed/total time. It only activates when the
+active tab is YouTube Music with the content script loaded, and it drives the
+site's own controls, so the queue and keyboard shortcuts behave exactly as they
+do on the page. The progress bar is interpolated locally, so it glides instead
+of stepping between polls; clicking a new track or seeking snaps immediately.
 
 **Profiles.** The row above the footer saves and loads named setups. Pick one
 to apply it immediately; **Save…** turns the row into a name field (Enter saves,
@@ -178,6 +195,8 @@ __ytmse.status();
 //   paused: false,   muted: false,        volume: 0.5,
 //   shuffle: true,   shufflePref: true,
 //   ad: false,       chainMuted: false,
+//   transport: { playing: true, paused: false, currentTime: 74.2,
+//                duration: 213, shuffle: true },
 //   config: { ... }, lastError: null
 // }
 ```
@@ -188,9 +207,11 @@ player is in an ad and `chainMuted` reports the master gain state. `shuffle` is
 what the button shows right now; `shufflePref` is the remembered choice (`null`
 until shuffle has been clicked once).
 
-`__ytmse.frame()` returns the current spectrum (`bars`, `bands`, `level`) that
-drives the visuals, and `__ytmse.rescan()` forces a fresh look for the player
-element.
+`__ytmse.frame()` returns the current spectrum (`bars`, `bands`, `level`) plus
+the transport snapshot (`currentTime`, `duration`, `paused`, `shuffle`) that
+drives the progress bar and icons. `__ytmse.command('playpause' | 'prev' |
+'next' | 'shuffle')` clicks the matching player-bar control, and
+`__ytmse.rescan()` forces a fresh look for the player element.
 
 ## Project layout
 
@@ -199,10 +220,11 @@ manifest.json   MV3 manifest (storage + music.youtube.com content script)
 audio.js        the graph: EQ, shelves, M/S width, saturation, compressor,
                 reverb, echo, limiter, master mute, analyser
 content.js      discovery, lifecycle, storage sync, shuffle keeper, ad guard,
-                frame producer, debug hook
-popup.html      popup markup (switch, EQ faders, effects card, profiles)
+                transport commands, frame producer, debug hook
+popup.html      popup markup (switch, transport, EQ faders, effects, profiles)
 popup.css       popup styling, fixed 380 px layout, reduced-motion rules
-popup.js        sliders, presets, profiles, EQ-only spectrum, persistence
+popup.js        sliders, presets, profiles, transport + smooth progress,
+                EQ-only spectrum, persistence
 icons/          16 / 48 / 128 px (official YouTube Music icon)
 docs/popup.png  screenshot used above
 ```
@@ -236,6 +258,13 @@ docs/popup.png  screenshot used above
   soon as the ad clears. In an ad-free window, forcing the ad state measured RMS
   **0.053 → 0 → 0.162** across mute and restore, and a synthetic visible *Skip*
   button was clicked by the ad guard.
+* Transport, in Brave: the harness drove `playpause`, `next`, `prev` and
+  `shuffle` through the real `content.js` and asserted the corresponding
+  player-bar buttons received the clicks. The popup test measured the progress
+  fill moving **117.6 → 118.2 px over 350 ms** while the labels advanced
+  **1:15 → 1:16**, and clicked all five controls through the popup itself.
+* Popup layout after the transport was added: still **380×588 px** in both the
+  YouTube Music and no-tab states (Chromium limit 600), with no scrollbar.
 
 Not verified: how it sounds on your speakers. That needs your ears.
 

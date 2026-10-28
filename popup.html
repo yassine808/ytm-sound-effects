@@ -27,6 +27,39 @@
     </div>
 
     <main id="controls">
+      <section class="player" id="player" aria-labelledby="playerLabel">
+        <h2 id="playerLabel" class="sr">Playback</h2>
+        <div class="transport">
+          <button type="button" id="prevBtn" class="tbtn" aria-label="Previous track" title="Previous" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h2.4v12H6zM18 6l-9 6 9 6z" /></svg>
+          </button>
+          <button type="button" id="playBtn" class="tbtn tbtn-play" aria-label="Play" title="Play" disabled>
+            <svg class="ic-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19 12z" /></svg>
+            <svg class="ic-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" /></svg>
+          </button>
+          <button type="button" id="nextBtn" class="tbtn" aria-label="Next track" title="Next" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.6 6H18v12h-2.4zM6 6l9 6-9 6z" /></svg>
+          </button>
+          <button type="button" id="shuffleBtn" class="tbtn tbtn-toggle" aria-label="Shuffle" aria-pressed="false" title="Shuffle" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 3h4v4" />
+              <path d="M21 3l-6.2 6.2" />
+              <path d="M3 7h3.2c1.9 0 3.1 1 4.3 2.6l3 4.8c1.2 1.6 2.4 2.6 4.3 2.6H21" />
+              <path d="M17 21h4v-4" />
+              <path d="M21 21l-6.2-6.2" />
+              <path d="M3 17h3.2c1.9 0 3.1-1 4.3-2.6l.6-.9" />
+            </svg>
+          </button>
+          <span class="time" aria-hidden="true"><span id="curTime">0:00</span><span class="time-sep">/</span><span id="durTime">0:00</span></span>
+        </div>
+        <div class="progress" id="progress" role="progressbar" aria-label="Track progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <span class="progress-rail">
+            <span class="progress-fill" id="progressFill"><span class="progress-shine" aria-hidden="true"></span></span>
+            <span class="progress-head" id="progressHead" aria-hidden="true"></span>
+          </span>
+        </div>
+      </section>
+
       <fieldset class="chips">
         <legend class="sr">Presets</legend>
         <button type="button" class="chip is-active" data-preset="Flat">Flat</button>
@@ -155,7 +188,7 @@
 
     <footer class="foot">
       <button id="reset" type="button" class="ghost">Reset all</button>
-      <span class="version">v0.4.1</span>
+      <span class="version">v0.5.0</span>
     </footer>
 
     <script src="audio.js"></script>

@@ -232,6 +232,156 @@
   }
 
   // ---------------------------------------------------------------------------
+  // transport: playback controls + smoothly interpolated progress
+  // ---------------------------------------------------------------------------
+
+  var transport = {
+    tabId: null,
+    enabled: false,
+    paused: true,
+    duration: 0,
+    baseTime: 0,
+    baseAt: 0,
+    shown: 0,
+    shuffle: null,
+    holdUntil: 0,
+    raf: null,
+    lastCur: '',
+    lastDur: ''
+  };
+
+  function fmtTime(seconds) {
+    var total = Math.max(0, Math.floor(isFinite(seconds) ? seconds : 0));
+    var h = Math.floor(total / 3600);
+    var m = Math.floor((total % 3600) / 60);
+    var s = total % 60;
+    if (h > 0) return h + ':' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function applyPlayState(paused) {
+    transport.paused = !!paused;
+    if (els.player) els.player.classList.toggle('is-playing', !transport.paused);
+    if (els.playBtn) {
+      var label = transport.paused ? 'Play' : 'Pause';
+      els.playBtn.setAttribute('aria-label', label);
+      els.playBtn.title = label;
+    }
+  }
+
+  function applyShuffle(on) {
+    if (typeof on === 'boolean') transport.shuffle = on;
+    var active = transport.shuffle === true;
+    if (!els.shuffleBtn) return;
+    els.shuffleBtn.classList.toggle('is-active', active);
+    els.shuffleBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  }
+
+  function showProgress(seconds) {
+    var pct = transport.duration > 0
+      ? Math.max(0, Math.min(1, seconds / transport.duration))
+      : 0;
+
+    if (els.progressFill) els.progressFill.style.width = (pct * 100).toFixed(3) + '%';
+    if (els.progressHead) els.progressHead.style.left = (pct * 100).toFixed(3) + '%';
+    if (els.progress) els.progress.setAttribute('aria-valuenow', String(Math.round(pct * 100)));
+
+    var cur = fmtTime(transport.duration > 0 ? seconds : 0);
+    if (cur !== transport.lastCur) {
+      if (els.curTime) els.curTime.textContent = cur;
+      transport.lastCur = cur;
+    }
+
+    var total = fmtTime(transport.duration);
+    if (total !== transport.lastDur) {
+      if (els.durTime) els.durTime.textContent = total;
+      transport.lastDur = total;
+    }
+  }
+
+  /** One analyser frame also carries the transport snapshot (~18 fps). */
+  function renderTransport(frame) {
+    if (!frame || typeof frame !== 'object') return;
+
+    var duration = Number(frame.duration);
+    var current = Number(frame.currentTime);
+    if (!isFinite(duration) || duration < 0) duration = 0;
+    if (!isFinite(current) || current < 0) current = 0;
+
+    var now = performance.now();
+    var expected = transport.baseTime +
+      (transport.paused ? 0 : (now - transport.baseAt) / 1000);
+    var jumped = Math.abs(current - expected) > 1.5 ||
+      Math.abs(duration - transport.duration) > 0.75;
+
+    transport.duration = duration;
+    transport.baseTime = current;
+    transport.baseAt = now;
+    if (jumped) transport.shown = current;
+    if (transport.shown > duration) transport.shown = duration;
+
+    // Ignore stale snapshots for a moment after a click so the optimistic
+    // icon doesn't flicker back.
+    if (now >= transport.holdUntil) {
+      applyPlayState(frame.paused === true);
+      if (typeof frame.shuffle === 'boolean') applyShuffle(frame.shuffle);
+    }
+  }
+
+  function progressTick(now) {
+    transport.raf = window.requestAnimationFrame(progressTick);
+
+    var duration = transport.duration;
+    if (!(duration > 0)) {
+      transport.shown = 0;
+      showProgress(0);
+      return;
+    }
+
+    var target = transport.baseTime +
+      (transport.paused ? 0 : Math.max(0, now - transport.baseAt) / 1000);
+    if (target > duration) target = duration;
+
+    var diff = target - transport.shown;
+    if (Math.abs(diff) > 1.5) transport.shown = target;
+    else transport.shown += diff * 0.3;
+
+    transport.shown = Math.max(0, Math.min(duration, transport.shown));
+    showProgress(transport.shown);
+  }
+
+  function setTransportEnabled(on) {
+    transport.enabled = !!on;
+    if (!transport.enabled) {
+      transport.tabId = null;
+      transport.duration = 0;
+      transport.shown = 0;
+      transport.baseTime = 0;
+      transport.paused = true;
+      transport.shuffle = null;
+      applyShuffle(false);
+      applyPlayState(true);
+      showProgress(0);
+    }
+    [els.prevBtn, els.playBtn, els.nextBtn, els.shuffleBtn].forEach(function (button) {
+      if (button) button.disabled = !transport.enabled;
+    });
+    if (els.player) els.player.classList.toggle('is-disabled', !transport.enabled);
+  }
+
+  function sendCommand(cmd) {
+    if (!transport.tabId || !transport.enabled) return;
+    try {
+      chrome.tabs.sendMessage(transport.tabId, { type: 'YTMSE_CMD', cmd: cmd }, function () {
+        // Read lastError so a closed tab does not log a noisy exception.
+        if (chrome.runtime && chrome.runtime.lastError) return;
+      });
+    } catch (e) {
+      /* the next frame poll will disable the controls if the tab is gone */
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // live spectrum (canvas behind the UI + the EQ meters)
   // ---------------------------------------------------------------------------
 
@@ -301,13 +451,17 @@
     try {
       chrome.tabs.sendMessage(tabId, { type: 'YTMSE_FRAME' }, function (res) {
         viz.busy = false;
-        if (chrome.runtime.lastError || !res || res.ok !== true) {
+        if (chrome.runtime.lastError || !res) {
           viz.fails += 1;
-          if (viz.fails > 4) stopViz();
+          if (viz.fails > 4) {
+            stopViz();
+            setTransportEnabled(false);
+          }
           return;
         }
         viz.fails = 0;
-        renderFrame(res);
+        renderTransport(res);
+        if (res.ok === true) renderFrame(res);
       });
     } catch (e) {
       viz.busy = false;
@@ -731,11 +885,13 @@
         var tab = tabs && tabs[0];
         var isYtm = !!(tab && /^https:\/\/music\.youtube\.com\//.test(tab.url || ''));
         if (!isYtm) {
+          setTransportEnabled(false);
           showNote('Effects live on YouTube Music.', 'Open YouTube Music', openYouTubeMusic);
           return;
         }
         chrome.tabs.sendMessage(tab.id, { type: 'YTMSE_PING' }, function (response) {
           if (chrome.runtime.lastError || !response || !response.ok) {
+            setTransportEnabled(false);
             showNote('Reload the YouTube Music tab to activate the effects.', 'Reload tab', function () {
               chrome.tabs.reload(tab.id);
               window.close();
@@ -743,6 +899,8 @@
             return;
           }
           hideTabNote();
+          transport.tabId = tab.id;
+          setTransportEnabled(true);
           startViz(tab.id);
         });
       });
@@ -778,6 +936,16 @@
     els.echo = document.getElementById('echo');
     els.echoOut = document.getElementById('echoOut');
     els.reset = document.getElementById('reset');
+    els.player = document.getElementById('player');
+    els.prevBtn = document.getElementById('prevBtn');
+    els.playBtn = document.getElementById('playBtn');
+    els.nextBtn = document.getElementById('nextBtn');
+    els.shuffleBtn = document.getElementById('shuffleBtn');
+    els.progress = document.getElementById('progress');
+    els.progressFill = document.getElementById('progressFill');
+    els.progressHead = document.getElementById('progressHead');
+    els.curTime = document.getElementById('curTime');
+    els.durTime = document.getElementById('durTime');
     els.vizCanvas = document.getElementById('viz');
     els.profMain = document.getElementById('profMain');
     els.profSave = document.getElementById('profSave');
@@ -793,6 +961,9 @@
     collect();
     buildEq();
     render(DEFAULTS);
+    setTransportEnabled(false);
+    transport.baseAt = performance.now();
+    transport.raf = window.requestAnimationFrame(progressTick);
 
     viz.canvas = els.vizCanvas;
     viz.reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -813,6 +984,31 @@
     });
 
     els.enabled.addEventListener('change', onUserChange);
+
+    els.playBtn.addEventListener('click', function () {
+      if (!transport.enabled) return;
+      var nextPaused = !transport.paused;
+      transport.baseTime = transport.shown;
+      transport.baseAt = performance.now();
+      transport.holdUntil = transport.baseAt + 550;
+      applyPlayState(nextPaused);
+      sendCommand('playpause');
+    });
+
+    els.prevBtn.addEventListener('click', function () {
+      sendCommand('prev');
+    });
+
+    els.nextBtn.addEventListener('click', function () {
+      sendCommand('next');
+    });
+
+    els.shuffleBtn.addEventListener('click', function () {
+      if (!transport.enabled) return;
+      transport.holdUntil = performance.now() + 700;
+      applyShuffle(transport.shuffle !== true);
+      sendCommand('shuffle');
+    });
 
     var chips = document.querySelectorAll('.chip[data-preset]');
     for (var c = 0; c < chips.length; c++) {
