@@ -330,11 +330,11 @@
     split.connect(sideR, 1);
     sideR.connect(side);
     mid.connect(merge, 0);
-    mid.connect(merge, 1);
+    mid.connect(merge, 0, 1);
     side.connect(this._widthSideL);
     this._widthSideL.connect(merge, 0);
     side.connect(this._widthSideR);
-    this._widthSideR.connect(merge, 1);
+    this._widthSideR.connect(merge, 0, 1);
 
     merge.connect(this.warmDry);
     merge.connect(this.shaper);

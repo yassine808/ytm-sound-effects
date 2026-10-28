@@ -234,11 +234,12 @@ docs/popup.png  screenshot used above
 * `node --check` on every script; manifest parses; every referenced asset exists.
 * The whole graph was unit-tested against a stubbed Web Audio API (wiring,
   gains, M/S width, saturation curve, echo loop, bypass neutrality, single-source
-  reuse); the master mute and analyser were verified against the real player.
-* Loaded unpacked in **Brave 156** (Chromium 156) against real YouTube Music:
-  chain attached, `AudioContext` running, post-limiter RMS **0.030 → 0.064** on
-  playback, and a config written to storage changed the applied filters and the
-  output level.
+  reuse), including node port validation so a mono node can never be connected to
+  merger input 1 through the output-index argument.
+* Loaded unpacked in **Brave 156** (Chromium 156) and driven through the real
+  extension's isolated world on live YouTube Music: chain attached, `AudioContext`
+  running, post-limiter RMS **0.146** with the spectrum moving, and the graph
+  routed to `destination` (no silent tab).
 * Popup rendered and measured in **Brave 156** at **380×588 px** (2× DPR) —
   inside Chromium's 600 px limit — with every input labelled, the spectrum moving
   behind the EQ faders only, and the profile row behaving (placeholder selected,
@@ -262,9 +263,11 @@ docs/popup.png  screenshot used above
   `shuffle` through the real `content.js` and asserted the corresponding
   player-bar buttons received the clicks. The popup test measured the progress
   fill moving **117.6 → 118.2 px over 350 ms** while the labels advanced
-  **1:15 → 1:16**, and clicked all five controls through the popup itself.
+  **1:15 → 1:16**, and clicked all four controls through the popup itself.
 * Popup layout after the transport was added: still **380×588 px** in both the
-  YouTube Music and no-tab states (Chromium limit 600), with no scrollbar.
+  YouTube Music and no-tab states (Chromium limit 600), with no scrollbar. The
+  transport group measures dead-centre (`group offset 0 px`), with the elapsed /
+  total time right-aligned.
 
 Not verified: how it sounds on your speakers. That needs your ears.
 

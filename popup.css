@@ -284,6 +284,12 @@ main {
   gap: 5px;
 }
 
+/* Equal spacer + time column keep the button group optically centred. */
+.transport::before {
+  content: "";
+  flex: 1 1 0;
+}
+
 .tbtn {
   display: inline-flex;
   align-items: center;
@@ -368,8 +374,10 @@ main {
 }
 
 .time {
-  margin-left: auto;
-  padding-left: 4px;
+  flex: 1 1 0;
+  margin-left: 0;
+  padding-left: 0;
+  text-align: right;
   font-size: 9.5px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
