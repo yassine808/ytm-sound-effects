@@ -44,6 +44,70 @@
     }
   }
 
+  /* Visible proof that the extension is alive on the page. A silent failure is
+     indistinguishable from "the extension does nothing". */
+  var badgeShown = false;
+  function showBadge(text, kind) {
+    try {
+      var previous = document.getElementById('ytmse-badge');
+      if (previous) previous.remove();
+
+      var el = document.createElement('div');
+      el.id = 'ytmse-badge';
+      el.setAttribute('role', 'status');
+      el.style.cssText = [
+        'position:fixed',
+        'left:18px',
+        'bottom:18px',
+        'z-index:2147483647',
+        'display:flex',
+        'align-items:center',
+        'gap:8px',
+        'padding:8px 12px',
+        'border-radius:999px',
+        'font:600 11.5px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif',
+        'letter-spacing:.01em',
+        'color:#f2f2f3',
+        'background:rgba(16,16,19,.95)',
+        'border:1px solid rgba(255,255,255,.1)',
+        'box-shadow:0 10px 26px -12px rgba(0,0,0,.9)',
+        'pointer-events:none',
+        'opacity:0',
+        'transform:translateY(8px)',
+        'transition:opacity .2s ease,transform .2s ease',
+        kind === 'error' ? 'border-color:rgba(255,80,80,.55)' : ''
+      ].join(';');
+
+      var dot = document.createElement('span');
+      dot.style.cssText = [
+        'width:7px',
+        'height:7px',
+        'border-radius:50%',
+        'background:' + (kind === 'error' ? '#ff5252' : '#ff2d2d'),
+        'box-shadow:0 0 10px ' + (kind === 'error' ? 'rgba(255,82,82,.85)' : 'rgba(255,45,45,.85)')
+      ].join(';');
+
+      el.appendChild(dot);
+      el.appendChild(document.createTextNode(text));
+      (document.body || document.documentElement).appendChild(el);
+
+      requestAnimationFrame(function () {
+        el.style.opacity = '1';
+        el.style.transform = 'translateY(0)';
+      });
+
+      setTimeout(function () {
+        el.style.opacity = '0';
+        el.style.transform = 'translateY(8px)';
+        setTimeout(function () {
+          el.remove();
+        }, 250);
+      }, kind === 'error' ? 8000 : 3000);
+    } catch (e) {
+      /* never let the badge break audio */
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // storage
   // ---------------------------------------------------------------------------
@@ -143,12 +207,17 @@
       chain.setConfig(config);
       if (el.paused === false) chain.resume();
       log('audio chain attached to <video>');
+      if (!badgeShown) {
+        badgeShown = true;
+        showBadge('Sound Effects active', 'ok');
+      }
       return true;
     } catch (e) {
       chain = null;
       videoEl = null;
       if (SoundChain.lastError) warn(SoundChain.lastError);
       else warn('attach failed:', e && e.message ? e.message : e);
+      showBadge(SoundChain.lastError || 'Sound Effects could not attach to the player', 'error');
       return false;
     }
   }
@@ -280,6 +349,14 @@
     startPolling();
     armGestures();
 
+    // Autoplay policy: any play event is a chance to un-suspend the context.
+    try {
+      document.addEventListener('play', resumeNow, true);
+      document.addEventListener('playing', resumeNow, true);
+    } catch (e) {
+      /* ignore */
+    }
+
     // YouTube Music is an SPA: also re-scan on history navigation.
     try {
       window.addEventListener('yt-navigate-finish', function () {
@@ -300,6 +377,48 @@
     } catch (e) {
       /* ignore */
     }
+  }
+
+  // Debug surface. Lives in the content script's isolated world, so page
+  // scripts can never read or control it.
+  try {
+    window.__ytmse = {
+      status: function () {
+        var ctx = SoundChain.getContext ? SoundChain.getContext() : null;
+        return {
+          attached: !!(chain && !chain.disposed),
+          context: ctx ? ctx.state : "none",
+          level: chain && !chain.disposed ? chain.getLevel() : 0,
+          paused: videoEl ? videoEl.paused : null,
+          muted: videoEl ? videoEl.muted : null,
+          volume: videoEl ? videoEl.volume : null,
+          config: config,
+          lastError: SoundChain.lastError || null
+        };
+      },
+      rescan: function () {
+        scan();
+        return true;
+      }
+    };
+  } catch (e) {
+    /* debug surface must never break the extension */
+  }
+
+  // Answer the popup's liveness ping so the UI can tell the user whether the
+  // tab needs a reload (installing an extension does not inject into tabs that
+  // are already open).
+  try {
+    chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
+      if (!message || message.type !== 'YTMSE_PING') return undefined;
+      sendResponse({
+        ok: true,
+        status: window.__ytmse ? window.__ytmse.status() : null
+      });
+      return false;
+    });
+  } catch (e) {
+    warn('could not register ping listener:', e);
   }
 
   try {

@@ -210,6 +210,12 @@
     this.limiter.attack.value = LIMITER.attack;
     this.limiter.release.value = LIMITER.release;
 
+    // Post-chain analyser: lets the extension (and tests) verify that samples
+    // actually reach the destination instead of failing silently.
+    this.analyser = ctx.createAnalyser();
+    this.analyser.fftSize = 1024;
+    this._levelBuffer = new Float32Array(this.analyser.fftSize);
+
     // --- wiring: source -> preamp -> eq[0..9] -> bass -> {dry, convolver->wet} -> limiter -> destination
     this.source.connect(this.preamp);
 
@@ -227,7 +233,8 @@
     this.dry.connect(this.limiter);
     this.wet.connect(this.limiter);
 
-    this.limiter.connect(ctx.destination);
+    this.limiter.connect(this.analyser);
+    this.analyser.connect(ctx.destination);
 
     this._impulseDecay = -1;
     this._setImpulse(this._config.reverbDecay);
@@ -307,6 +314,21 @@
     );
   };
 
+  /** RMS of the post-limiter signal (0..1). 0 while nothing is playing. */
+  SoundChain.prototype.getLevel = function () {
+    if (this.disposed || !this.analyser) return 0;
+    try {
+      this.analyser.getFloatTimeDomainData(this._levelBuffer);
+      var sum = 0;
+      for (var i = 0; i < this._levelBuffer.length; i++) {
+        sum += this._levelBuffer[i] * this._levelBuffer[i];
+      }
+      return Math.sqrt(sum / this._levelBuffer.length);
+    } catch (e) {
+      return 0;
+    }
+  };
+
   /** Disconnect this chain's nodes. The MediaElementSource is kept alive (browser limit). */
   SoundChain.prototype.dispose = function () {
     if (this.disposed) return;
@@ -320,6 +342,7 @@
     disconnectQuietly(this.convolver);
     disconnectQuietly(this.wet);
     disconnectQuietly(this.limiter);
+    disconnectQuietly(this.analyser);
 
     try {
       this.convolver.buffer = null;

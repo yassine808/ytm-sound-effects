@@ -1,5 +1,5 @@
-/*
- * YTM Sound Effects — popup UI.
+﻿/*
+ * YTM Sound Effects â€” popup UI.
  * Reads/writes chrome.storage.local["ytmse:config"]; the content script applies changes live.
  */
 (function () {
@@ -26,6 +26,8 @@
   var els = {};
   var bandInputs = [];
   var bandOuts = [];
+  var bandMeters = [];
+  var bandWraps = [];
   var saveTimer = null;
   var storageBroken = false;
 
@@ -38,14 +40,140 @@
     return (n > 0 ? '+' : '') + n + ' dB';
   }
 
+  /** Compact form for the narrow EQ columns: "+1.5", "0", "-2". */
+  function fmtBand(v) {
+    var n = Math.round(v * 10) / 10;
+    if (n === 0) return '0';
+    return (n > 0 ? '+' : '') + n;
+  }
+
   function fmtHz(hz) {
     return hz >= 1000 ? hz / 1000 + 'k' : String(hz);
   }
 
-  function showNote(text) {
+  function paintBand(i, v) {
+    var meter = bandMeters[i];
+    var band = bandWraps[i];
+    if (!meter || !band) return;
+
+    var pct = (Math.abs(v) / 12) * 50;
+    meter.style.height = pct + '%';
+
+    if (v > 0) {
+      meter.style.bottom = '50%';
+      meter.style.top = 'auto';
+    } else if (v < 0) {
+      meter.style.bottom = 'auto';
+      meter.style.top = '50%';
+    }
+    meter.classList.toggle('is-cut', v < 0);
+    band.classList.toggle('is-boost', v > 0);
+    band.classList.toggle('is-cut', v < 0);
+    band.classList.toggle('is-flat', v === 0);
+  }
+
+  function paintRange(el, pct) {
+    if (!el) return;
+    var clamped = Math.max(0, Math.min(100, pct));
+    el.style.setProperty('--p', clamped + '%');
+  }
+
+  function paintRanges() {
+    paintRange(els.preamp, ((parseFloat(els.preamp.value) || 0) + 12) / 24 * 100);
+    paintRange(els.bass, (parseFloat(els.bass.value) || 0) / 15 * 100);
+    paintRange(els.mix, parseFloat(els.mix.value) || 0);
+    paintRange(els.decay, ((parseFloat(els.decay.value) || 1.8) - 0.3) / 3.7 * 100);
+
+    for (var i = 0; i < bandInputs.length; i++) {
+      paintBand(i, parseFloat(bandInputs[i].value) || 0);
+    }
+  }
+
+  function syncChips(name) {
+    var chips = document.querySelectorAll('.chip[data-preset]');
+    for (var i = 0; i < chips.length; i++) {
+      var on = chips[i].dataset.preset === name;
+      chips[i].classList.toggle('is-active', on);
+      chips[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+  }
+
+  function matchPreset(cfg) {
+    var EPS = 1e-6;
+    for (var name in PRESETS) {
+      if (!Object.prototype.hasOwnProperty.call(PRESETS, name)) continue;
+      var p = PRESETS[name];
+      if (Math.abs(p.preampDb - cfg.preampDb) > EPS) continue;
+      if (Math.abs(p.bassDb - cfg.bassDb) > EPS) continue;
+      if (Math.abs(p.reverbMix - cfg.reverbMix) > EPS) continue;
+      if (Math.abs(p.reverbDecay - cfg.reverbDecay) > EPS) continue;
+
+      var sameEq = true;
+      for (var i = 0; i < p.eq.length; i++) {
+        if (Math.abs(p.eq[i] - cfg.eq[i]) > EPS) {
+          sameEq = false;
+          break;
+        }
+      }
+      if (sameEq) return name;
+    }
+    return null;
+  }
+
+  function showNote(text, actionLabel, actionFn) {
     if (!els.note) return;
-    els.note.textContent = text;
+    if (els.noteText) els.noteText.textContent = text || '';
+    else els.note.textContent = text || '';
     els.note.hidden = !text;
+
+    var hasAction = !!(text && actionLabel && actionFn);
+    els.note.dataset.tab = hasAction ? '1' : '';
+
+    if (els.noteAction) {
+      els.noteAction.hidden = !hasAction;
+      els.noteAction.textContent = actionLabel || '';
+      els.noteAction.onclick = hasAction
+        ? function () {
+            try {
+              actionFn();
+            } catch (e) {
+              /* ignore */
+            }
+          }
+        : null;
+    }
+  }
+
+  /** Warn when the content script is not live in the active tab (fresh install,
+      reload needed, or the tab predates the extension). */
+  function checkActiveTab() {
+    if (typeof chrome === 'undefined' || !chrome.tabs) return;
+    try {
+      chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+        var tab = tabs && tabs[0];
+        var isYtm = !!(tab && /^https:\/\/music\.youtube\.com\//.test(tab.url || ''));
+        if (!isYtm) {
+          showNote('Open a YouTube Music tab to use the effects.');
+          return;
+        }
+        chrome.tabs.sendMessage(tab.id, { type: 'YTMSE_PING' }, function (response) {
+          if (chrome.runtime.lastError || !response || !response.ok) {
+            showNote('Reload the YouTube Music tab to activate the effects.', 'Reload tab', function () {
+              chrome.tabs.reload(tab.id);
+              window.close();
+            });
+            return;
+          }
+          hideTabNote();
+        });
+      });
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  function hideTabNote() {
+    if (els.note && els.note.dataset.tab === '1') showNote('');
   }
 
   function storageAvailable() {
@@ -61,11 +189,23 @@
 
     BANDS.forEach(function (hz, i) {
       var band = document.createElement('div');
-      band.className = 'band';
+      band.className = 'band is-flat';
 
       var out = document.createElement('span');
       out.className = 'db';
       out.textContent = '0';
+
+      var fader = document.createElement('div');
+      fader.className = 'fader';
+
+      var rail = document.createElement('span');
+      rail.className = 'fader-rail';
+
+      var zero = document.createElement('span');
+      zero.className = 'fader-zero';
+
+      var meter = document.createElement('span');
+      meter.className = 'fader-meter';
 
       var input = document.createElement('input');
       input.type = 'range';
@@ -78,20 +218,28 @@
       input.setAttribute('aria-label', fmtHz(hz) + ' Hz gain');
       input.title = fmtHz(hz) + ' Hz';
 
+      fader.appendChild(rail);
+      fader.appendChild(zero);
+      fader.appendChild(meter);
+      fader.appendChild(input);
+
       var label = document.createElement('span');
       label.className = 'hz';
       label.textContent = fmtHz(hz);
 
       band.appendChild(out);
-      band.appendChild(input);
+      band.appendChild(fader);
       band.appendChild(label);
       frag.appendChild(band);
 
       bandInputs.push(input);
       bandOuts.push(out);
+      bandMeters.push(meter);
+      bandWraps.push(band);
 
       input.addEventListener('input', function () {
-        out.textContent = fmtDb(parseFloat(input.value) || 0);
+        out.textContent = fmtBand(parseFloat(input.value) || 0);
+        paintBand(i, parseFloat(input.value) || 0);
         onUserChange();
       });
     });
@@ -127,10 +275,11 @@
 
     for (var i = 0; i < bandInputs.length; i++) {
       bandInputs[i].value = String(c.eq[i]);
-      bandOuts[i].textContent = fmtDb(c.eq[i]);
+      bandOuts[i].textContent = fmtBand(c.eq[i]);
     }
 
     updateLabels();
+    syncChips(matchPreset(c));
   }
 
   function updateLabels() {
@@ -139,6 +288,7 @@
     els.mixOut.textContent = Math.round(parseFloat(els.mix.value) || 0) + ' %';
     els.decayOut.textContent = (Math.round((parseFloat(els.decay.value) || 0) * 10) / 10).toFixed(1) + ' s';
     els.controls.classList.toggle('off', !els.enabled.checked);
+    paintRanges();
   }
 
   // ---------------------------------------------------------------------------
@@ -153,7 +303,7 @@
     if (storageBroken) return;
     if (!storageAvailable()) {
       storageBroken = true;
-      showNote('chrome.storage is unavailable — settings will not persist.');
+      showNote('chrome.storage is unavailable â€” settings will not persist.');
       return;
     }
     var payload = {};
@@ -178,13 +328,14 @@
 
   function onUserChange() {
     updateLabels();
+    syncChips(matchPreset(readUi()));
     scheduleSave();
   }
 
   function load() {
     if (!storageAvailable()) {
       storageBroken = true;
-      showNote('chrome.storage is unavailable — showing defaults.');
+      showNote('chrome.storage is unavailable â€” showing defaults.');
       render(DEFAULTS);
       return;
     }
@@ -232,6 +383,8 @@
   function collect() {
     els.enabled = document.getElementById('enabled');
     els.note = document.getElementById('note');
+    els.noteText = document.getElementById('noteText');
+    els.noteAction = document.getElementById('noteAction');
     els.controls = document.getElementById('controls');
     els.eqBands = document.getElementById('eqBands');
     els.preamp = document.getElementById('preamp');
@@ -242,7 +395,6 @@
     els.mixOut = document.getElementById('mixOut');
     els.decay = document.getElementById('decay');
     els.decayOut = document.getElementById('decayOut');
-    els.preset = document.getElementById('preset');
     els.reset = document.getElementById('reset');
   }
 
@@ -257,17 +409,20 @@
 
     els.enabled.addEventListener('change', onUserChange);
 
-    els.preset.addEventListener('change', function () {
-      applyPreset(els.preset.value);
-    });
+    var chips = document.querySelectorAll('.chip[data-preset]');
+    for (var i = 0; i < chips.length; i++) {
+      chips[i].addEventListener('click', function () {
+        applyPreset(this.dataset.preset);
+      });
+    }
 
     els.reset.addEventListener('click', function () {
-      els.preset.value = 'Flat';
       render(DEFAULTS);
       saveNow();
     });
 
     load();
+    checkActiveTab();
   }
 
   try {

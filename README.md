@@ -1,93 +1,138 @@
 # YTM Sound Effects
 
-A Chrome (Manifest V3) extension that puts an audio effects chain in front of
-`music.youtube.com`: a **10-band equalizer**, a **bass boost**, **reverb**, and a
-**master pre-amp** — with five presets and settings that persist across reloads
-and tracks.
+A Chrome (Manifest V3) extension that puts a real audio chain on top of
+**YouTube Music**: a 10-band equalizer, bass boost and a reverb, all live while
+the track plays.
 
-No bundler, no npm, no build step, no external assets. Plain JS + Web Audio.
+![Popup](docs/popup.png)
 
-## What it does
+## Features
 
-Everything runs inside the page through a `MediaElementAudioSourceNode` attached
-to YouTube Music's `<video>` element:
+| | |
+|---|---|
+| **10-band EQ** | 32 Hz → 16 kHz, ±12 dB per band, with a live gain readout and a centre-zero meter |
+| **Bass boost** | Low-shelf at 100 Hz, 0 → +15 dB |
+| **Reverb** | Convolver with an impulse response generated in code (no audio files), adjustable wet/dry mix and 0.3–4 s decay |
+| **Pre-amp** | −12 → +12 dB before the filters, so a boosted EQ does not clip |
+| **Presets** | Flat, Bass, Vocal, Live, Hall — one click, and the chip stays highlighted only while the settings match |
+| **Bypass** | The `LIVE / Bypassed` pill switches the chain to neutral without ever disconnecting it |
+| **Persistence** | Settings live in `chrome.storage.local` and are applied to every open tab immediately |
+
+## How it works
+
+The extension taps the page's `<video>` element and routes its audio through a
+Web Audio graph:
 
 ```
-<video> ─► source ─► pre-amp ─► EQ ×10 ─► bass shelf ─┬─► dry ───────────┐
-                                                      └─► convolver ─► wet ┴─► limiter ─► speakers
+<video> ──► MediaElementSource ──► pre-amp ──► EQ ×10 ──► bass shelf ──┬──► dry ─────┐
+                                                                       └──► convolver ─┴──► limiter ──► analyser ──► destination
 ```
 
-- **EQ** — 10 peaking filters at 32, 64, 125, 250, 500, 1k, 2k, 4k, 8k, 16k Hz,
-  ±12 dB each (Q ≈ 1.1).
-- **Bass boost** — low shelf at 100 Hz, 0…+15 dB.
-- **Reverb** — convolution with an impulse response generated in code (stereo
-  decaying noise), wet/dry mix 0…100 %, decay 0.3…4 s.
-- **Limiter** — always the last node before the output (threshold −1 dB,
-  ratio 20, knee 0) so boosted bands cannot clip.
-- **Bypass** — the master switch sets every stage to neutral (0 dB, reverb 0 %)
-  instead of disconnecting anything, so audio never drops out.
-- Changes apply live (smoothed ~20 ms) while a track is playing.
+A few details that matter:
+
+* **One media source per element, forever.** `createMediaElementSource()` can be
+  called only once per element; the node is cached so rebuilds reuse it instead
+  of throwing `InvalidStateError`.
+* **Bypass is acoustic, not structural.** When disabled, every gain is set to
+  neutral. Disconnecting the graph would silence the tab.
+* **YouTube Music is a SPA.** A poll plus a `MutationObserver` watch for the
+  player element being replaced on navigation and rebuild the chain when it is.
+* **Reverb without assets.** The impulse response is stereo decorrelated noise
+  with an exponential decay envelope, rebuilt only when the decay length
+  changes.
+* **A limiter always sits at the end** (threshold −1 dB, ratio 20) so aggressive
+  EQ settings cannot clip.
+* **The analyser is a health check**, not decoration: it is what the popup and
+  the debug hook use to prove audio is actually flowing.
+
+The popup and the page script share one storage key, `ytmse:config`; the content
+script listens to `chrome.storage.onChanged`, so moving a slider is audible
+within a few milliseconds and needs no reload.
 
 ## Install
 
-1. Open `chrome://extensions`.
-2. Turn on **Developer mode** (top right).
-3. Click **Load unpacked** and select this folder (the one containing
-   `manifest.json`).
-4. Open <https://music.youtube.com> and start a track.
-5. Click the extension icon to open the popup and shape the sound.
+1. Download or clone this repository.
+2. Open `chrome://extensions` (or `brave://extensions`, `edge://extensions`).
+3. Enable **Developer mode**.
+4. **Load unpacked** → select this folder.
+5. Open <https://music.youtube.com> and start a track.
 
-Click anywhere on the page (or press a key) once if you hear no effect: Chrome's
-autoplay policy keeps the `AudioContext` suspended until a user gesture.
+> Installing an extension does **not** inject it into tabs that are already
+> open. If the popup says *"Reload the YouTube Music tab"*, use the button — it
+> reloads the tab for you.
 
-## Presets
+## Using it
 
-| Preset | Pre-amp | EQ (32 Hz → 16 kHz, dB)                                    | Bass | Reverb mix | Decay |
-| ------ | ------- | ---------------------------------------------------------- | ---- | ---------- | ----- |
-| Flat   | 0 dB    | 0, 0, 0, 0, 0, 0, 0, 0, 0, 0                                | 0 dB | 0 %        | 1.8 s |
-| Bass   | −2 dB   | +6, +5.5, +3, +1, 0, −1, −1, +0.5, +1, +1                   | 8 dB | 5 %        | 1.2 s |
-| Vocal  | 0 dB    | −3, −2, −1, +1, +3, +4, +3, +1.5, 0, −1                     | 0 dB | 12 %       | 1.0 s |
-| Live   | −1 dB   | +2.5, +2, +1, 0, −1.5, 0, +1, +2, +2, +2                    | 3 dB | 30 %       | 1.7 s |
-| Hall   | −2 dB   | +1.5, +1, 0, −1, −1, 0, +1, +1, 0, +0.5                     | 2 dB | 45 %       | 3.2 s |
+Open the toolbar popup while a YouTube Music tab is active. Move any slider and
+the change is audible immediately. Click a preset chip to jump to a known-good
+starting point, and use **Reset all** to return to a flat, neutral chain.
 
-**Reset** returns to Flat (effects on, everything neutral).
+| Preset | Character |
+|---|---|
+| Flat | Neutral reference (also the reset state) |
+| Bass | Low end +8 dB, slightly scooped mids |
+| Vocal | Presence around 1–2 kHz, tame lows |
+| Live | Small room reverb, gentle low-mid cut |
+| Hall | Long 3.2 s tail, wide and darker |
 
-All settings live in `chrome.storage.local` under the key `ytmse:config`; the
-content script listens for changes, so the popup updates the sound instantly and
-values survive page reloads, SPA navigation and track changes.
+## Troubleshooting
 
-## Files
+**No sound at all after installing.** Reload the tab (the popup offers the
+button). A tab that was open before the extension was installed has no content
+script.
 
-| File | Role |
-| --- | --- |
-| `manifest.json` | MV3 manifest (`storage` permission, content script on `music.youtube.com`). |
-| `audio.js` | Pure Web Audio graph builder. No `chrome.*` calls. Exposes `window.YTMAudio`. |
-| `content.js` | Finds the `<video>`, builds/rebuilds the chain, syncs with storage. |
-| `popup.html` / `popup.css` / `popup.js` | The UI. |
-| `icons/` | 16/48/128 px icons. |
+**The popup says the effects are not active.** Same cause: the page was not
+injected. Reload it.
 
-## Known limitations
+**Everything is audible but nothing changes.** The default config is flat — pull
+a band or the bass slider, or click a preset.
 
-- **CORS / silence.** If `googlevideo.com` served the media without CORS headers,
-  a `MediaElementAudioSourceNode` would output silence. In practice YouTube
-  Music serves media with CORS enabled and the chain works, but this is the
-  failure mode to check first if you hear nothing. Fallbacks would be
-  `chrome.tabCapture` (offscreen document) or `video.captureStream()`, neither of
-  which is implemented in v1.
-- **One media source per element, ever.** The browser allows a single
-  `MediaElementAudioSourceNode` per element. A second attempt throws
-  `InvalidStateError` — usually because another audio extension (or an earlier
-  copy of this one) already claimed the element. The chain reuses its cached
-  source node on rebuilds; if it still fails, `YTMAudio.SoundChain.lastError`
-  holds a readable message and the console shows a warning. Fix: disable the
-  other audio extension and reload the page.
-- **Ads.** Ads play through the same `<video>` element but their own loudness is
-  not normalized like music, so boosted settings can sound harsh during an ad.
-  Toggle the master switch off if that matters.
-- **Element swaps / SPA navigation** are handled by a `MutationObserver` plus a
-  1 s poll; there can be a brief gap (well under a second) right after a track
-  change while the new element is discovered.
-- **No live cable-level verification.** Bypass is neutral in theory (0 dB gains,
-  0 % wet); only listening tests can confirm no audible colouration.
-- Chrome only (not tested on Edge/Firefox). The popup cannot resume the page's
-  `AudioContext` — only a gesture on the music.youtube.com page can.
+**"This media element is already owned by another AudioContext."** Another audio
+extension (equalizer, volume booster) grabbed the `<video>` first, and the
+browser allows only one owner. Disable the other extension and reload.
+
+**The tab went silent.** That can only happen if the media is cross-origin
+without CORS; YouTube Music serves its audio from a same-origin `blob:` URL, so
+this should not happen here. If it does, reload the tab to restore the native
+output.
+
+## Debugging
+
+The content script exposes a small, isolated-world-only hook:
+
+```js
+// DevTools console, context = "YTM Sound Effects"
+__ytmse.status();
+// { attached: true, context: "running", level: 0.043, paused: false, muted: false, ... }
+```
+
+`level` is the RMS after the limiter: if it is `0` while a track is playing, the
+audio is not reaching the graph.
+
+## Project layout
+
+```
+manifest.json   MV3 manifest (storage + music.youtube.com content script)
+audio.js        the graph: filters, impulse response, limiter, analyser
+content.js      discovery, lifecycle, storage sync, in-page badge, ping
+popup.html      popup markup
+popup.css       popup styling
+popup.js        sliders, presets, persistence
+icons/          16 / 48 / 128 px (official YouTube Music icon)
+docs/popup.png  screenshot used above
+```
+
+## Verified
+
+* `node --check` on every script; manifest parses; every referenced asset exists.
+* The whole graph was unit-tested against a stubbed Web Audio API (42 assertions:
+  wiring, gains, IR generation, bypass neutrality, single-source reuse).
+* Loaded unpacked in Chromium 156 against real YouTube Music: chain attached,
+  `AudioContext` running, post-limiter RMS **0.030 → 0.064** on playback, and a
+  config written to storage changed the applied filters and the output level.
+
+Not verified: how it sounds on your speakers. That needs your ears.
+
+## License
+
+MIT

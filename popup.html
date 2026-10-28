@@ -6,79 +6,92 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <header class="topbar">
-      <div class="brand">
-        <span class="chip" aria-hidden="true">
-          <i></i><i></i><i></i><i></i>
-        </span>
-        <span>YTM Sound Effects</span>
+    <div class="aurora" aria-hidden="true"></div>
+
+    <header class="hero">
+      <img class="logo" src="icons/48.png" alt="" width="40" height="40" />
+      <div class="hero-text">
+        <h1>Sound Effects</h1>
+        <p>YouTube Music &middot; reverb &amp; EQ</p>
       </div>
-      <label class="switch" title="Enable / bypass effects">
-        <input type="checkbox" id="enabled" />
-        <span class="track" aria-hidden="true"><span class="knob"></span></span>
-        <span class="sr">Enabled</span>
+      <label class="power" title="Bypass the effect chain">
+        <input type="checkbox" id="enabled" class="sr" checked />
+        <span class="power-dot" aria-hidden="true"></span>
+        <span class="power-text" aria-hidden="true"></span>
       </label>
     </header>
 
-    <p id="note" class="note" hidden></p>
+    <div id="note" class="note" hidden>
+      <span id="noteText"></span>
+      <button id="noteAction" class="note-action" type="button" hidden>Reload tab</button>
+    </div>
 
     <main id="controls">
-      <section class="block">
-        <div class="head">
-          <span class="title">Pre-amp</span>
-          <output id="preampOut" class="value">0 dB</output>
-        </div>
-        <input type="range" id="preamp" min="-12" max="12" step="1" value="0" />
-      </section>
+      <div class="chips" role="group" aria-label="Presets">
+        <button type="button" class="chip is-active" data-preset="Flat">Flat</button>
+        <button type="button" class="chip" data-preset="Bass">Bass</button>
+        <button type="button" class="chip" data-preset="Vocal">Vocal</button>
+        <button type="button" class="chip" data-preset="Live">Live</button>
+        <button type="button" class="chip" data-preset="Hall">Hall</button>
+      </div>
 
-      <section class="block">
-        <div class="head">
-          <span class="title">Equalizer</span>
-          <span class="hint">−12 / +12 dB</span>
+      <section class="card eq-card">
+        <div class="card-head">
+          <h2>Equalizer</h2>
+          <span class="unit">&minus;12 &hellip; +12 dB</span>
         </div>
         <div id="eqBands" class="eq-bands"></div>
       </section>
 
-      <section class="block">
-        <div class="head">
-          <span class="title">Bass boost</span>
-          <output id="bassOut" class="value">0 dB</output>
+      <section class="card">
+        <div class="card-head">
+          <h2>Output</h2>
         </div>
-        <input type="range" id="bass" min="0" max="15" step="0.5" value="0" />
+
+        <div class="slider-row">
+          <div class="slider-meta">
+            <span class="slider-name">Bass boost</span>
+            <output id="bassOut" class="value">0 dB</output>
+          </div>
+          <input type="range" class="h" id="bass" min="0" max="15" step="0.5" value="0" />
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-meta">
+            <span class="slider-name">Pre-amp</span>
+            <output id="preampOut" class="value">0 dB</output>
+          </div>
+          <input type="range" class="h" id="preamp" min="-12" max="12" step="1" value="0" />
+        </div>
       </section>
 
-      <section class="block">
-        <div class="head">
-          <span class="title">Reverb mix</span>
-          <output id="mixOut" class="value">0 %</output>
+      <section class="card">
+        <div class="card-head">
+          <h2>Reverb</h2>
         </div>
-        <input type="range" id="mix" min="0" max="100" step="1" value="0" />
-      </section>
 
-      <section class="block">
-        <div class="head">
-          <span class="title">Reverb decay</span>
-          <output id="decayOut" class="value">1.8 s</output>
+        <div class="slider-row">
+          <div class="slider-meta">
+            <span class="slider-name">Mix</span>
+            <output id="mixOut" class="value">0 %</output>
+          </div>
+          <input type="range" class="h" id="mix" min="0" max="100" step="1" value="0" />
         </div>
-        <input type="range" id="decay" min="0.3" max="4" step="0.1" value="1.8" />
-      </section>
 
-      <section class="block bottom">
-        <div class="head">
-          <label class="title" for="preset">Preset</label>
-        </div>
-        <div class="actions">
-          <select id="preset">
-            <option value="Flat">Flat</option>
-            <option value="Bass">Bass</option>
-            <option value="Vocal">Vocal</option>
-            <option value="Live">Live</option>
-            <option value="Hall">Hall</option>
-          </select>
-          <button id="reset" type="button">Reset</button>
+        <div class="slider-row">
+          <div class="slider-meta">
+            <span class="slider-name">Decay</span>
+            <output id="decayOut" class="value">1.8 s</output>
+          </div>
+          <input type="range" class="h" id="decay" min="0.3" max="4" step="0.1" value="1.8" />
         </div>
       </section>
     </main>
+
+    <footer class="foot">
+      <button id="reset" type="button" class="ghost">Reset all</button>
+      <span class="version">v0.2.0</span>
+    </footer>
 
     <script src="audio.js"></script>
     <script src="popup.js"></script>
