@@ -49,13 +49,15 @@ A few details that matter:
   of throwing `InvalidStateError`.
 * **Bypass is acoustic, not structural.** When the switch is off, every gain is
   set to neutral. Disconnecting the graph would silence the tab.
-* **The master gain silences ads, not the site.** A `Sponsored` line in the
-  player bar (and the player's `ad-showing` state) marks an ad; the master gain
-  ramps to zero before the analyser, so no ad audio reaches the output and no
-  ad bars reach the visuals. It never touches the page's volume or mute state.
-  A visible *Skip* button is clicked when one exists. The player bar's playback
-  clock distinguishes a real ad from a stale `ad-showing` class, so the music
-  cannot stay muted by accident.
+* **The master gain silences ads, not the site.** An ad is recognised from the
+  player's `ad-showing`/`ad-interrupting` classes, the visible `.ytp-ad-*`
+  overlay and badge, or the `Sponsored` line in the player bar. Any of those
+  ramps the master gain to zero before the analyser, so no ad audio reaches the
+  output and no ad bars reach the visuals. A `MutationObserver` on the player's
+  class reacts within a frame; a 12 s evidence timeout only releases a stale
+  `ad-showing` class. It never touches the page's volume or mute state. A
+  visible *Skip* button is clicked when one exists. Ads cannot be blocked at the
+  network level from a content script — they are muted and skipped.
 * **YouTube Music is a SPA.** A poll plus a `MutationObserver` watch for the
   player element being replaced on navigation and rebuild the chain when it is.
 * **Reverb without assets.** The impulse response is stereo decorrelated noise
@@ -74,10 +76,14 @@ A few details that matter:
 * **The analyser feeds the visuals**, and doubles as a health check: the popup
   polls one frame roughly eighteen times a second to draw the spectrum behind
   the faders, and the debug hook uses the same frame to prove audio is flowing.
-* **Shuffle has no ARIA state.** YouTube Music signals it only through the icon
-  colour (white on, grey off). The extension saves explicit clicks and restores
-  the choice on boot, on `playing`, and after SPA navigation, with a retry cap
-  so it never fights the user.
+* **Shuffle state is read from the player-bar icon.** The player-bar button has
+  no ARIA state: ON is white (`255,255,255`) and OFF is grey (`144,144,144`).
+  Some newer player buttons elsewhere do expose `aria-pressed`, so the keeper
+  checks that first and falls back to colour. Only the player-bar button is
+  used — the playlist and home "Shuffle" buttons start something new. The
+  extension saves explicit clicks and restores either state on boot, on
+  `playing`, and after SPA navigation, with a retry cap and a short cooldown so
+  it never fights the user.
 
 The popup and the page script share one storage key, `ytmse:config`; profiles
 live in `ytmse:profiles` and the shuffle choice in `ytmse:shuffle`. The content
@@ -98,7 +104,9 @@ within a few milliseconds and needs no reload.
 
 ## Using it
 
-Open the toolbar popup while a YouTube Music tab is active. The switch in the
+Open the toolbar popup while a YouTube Music tab is active. If the active tab is
+not YouTube Music, the popup shows an **Open YouTube Music** button that focuses
+an existing tab or opens the site, then closes the popup. The switch in the
 header turns the whole chain on and off; the settings are kept, so flipping it
 back restores exactly what you had. Move any slider and the change is audible
 immediately. **Reset all** sits in the footer, always visible — no scrolling.
@@ -213,12 +221,21 @@ docs/popup.png  screenshot used above
   inside Chromium's 600 px limit — with every input labelled, the spectrum moving
   behind the EQ faders only, and the profile row behaving (placeholder selected,
   delete disabled until a real profile exists).
+* Shuffle state, probed against live YouTube Music in Brave: the player-bar
+  button has no `aria-pressed`; it is grey (`144,144,144`) when off and white
+  (`255,255,255`) when on. The keeper reads `aria-pressed` when a newer button
+  provides it, then falls back to that colour, scoped strictly to the player bar.
+* The no-tab popup renders a working **Open YouTube Music** button: it creates
+  `https://music.youtube.com/` when no tab exists and focuses an existing one;
+  the popup stays 380×588 with the CTA visible.
 * Shuffle, live: turn on → reopen in a fresh tab with YouTube Music's local
   storage cleared → still on; turn off → reopen → still off.
-* Ads, live: a real ad break was detected (`ad-showing` + `Sponsored`) and the
-  chain muted (`level` 0). In an ad-free window, forcing the ad state measured
-  RMS **0.053 → 0 → 0.162** across mute and restore, and a synthetic visible
-  *Skip* button was clicked by the ad guard.
+* Ads, live: a real 15 s pre-roll in Brave was recognised from `ad-showing`,
+  the visible `.ytp-ad-*` overlay and the `Sponsored` line. An in-Brave harness
+  then asserted all three paths: the chain mutes on each signal and unmutes as
+  soon as the ad clears. In an ad-free window, forcing the ad state measured RMS
+  **0.053 → 0 → 0.162** across mute and restore, and a synthetic visible *Skip*
+  button was clicked by the ad guard.
 
 Not verified: how it sounds on your speakers. That needs your ears.
 

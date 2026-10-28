@@ -153,15 +153,23 @@
   // shuffle persistence
   // ---------------------------------------------------------------------------
   /* YouTube Music forgets the shuffle state on reload. We remember the user's
-     last explicit choice and put it back; state is read from the icon colour
-     (white = on, grey = off) because the button exposes no aria-pressed. */
+     last explicit choice and put it back. The player-bar button has no ARIA
+     state: ON is a white icon and OFF is grey. Some newer buttons elsewhere do
+     expose aria-pressed, so check that first and fall back to colour. */
 
   var SHUFFLE_KEY = 'ytmse:shuffle';
+  var SHUFFLE_RETRY_LIMIT = 8;
+  var SHUFFLE_CLICK_COOLDOWN = 1200;
   var shufflePref = null; // null until the user has ever touched shuffle
   var shuffleAttempts = 0;
+  var shuffleClickedAt = 0;
 
   function findShuffleButton() {
-    var scope = document.querySelector('ytmusic-player-bar') || document;
+    // Only the player bar counts. Other "Shuffle" buttons (playlist headers,
+    // home cards) start something new instead of toggling playback order.
+    var scope = document.querySelector('ytmusic-player-bar');
+    if (!scope) return null;
+
     var buttons = scope.querySelectorAll(
       'button[aria-label="Shuffle"], button[aria-label*="huffle" i]'
     );
@@ -174,6 +182,14 @@
 
   function isShuffleOn(button) {
     try {
+      var pressed = button.getAttribute('aria-pressed');
+      if (pressed === 'true') return true;
+      if (pressed === 'false') return false;
+
+      var checked = button.getAttribute('aria-checked');
+      if (checked === 'true') return true;
+      if (checked === 'false') return false;
+
       var icon = button.querySelector('yt-icon') || button;
       var color = window.getComputedStyle(icon).color || '';
       var match = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(color);
@@ -189,15 +205,21 @@
   }
 
   function restoreShuffle(force) {
-    if (shufflePref !== true) return;
-    if (!force && shuffleAttempts >= 6) return;
+    if (typeof shufflePref !== 'boolean') return;
+    if (!force && shuffleAttempts >= SHUFFLE_RETRY_LIMIT) return;
 
     var button = findShuffleButton();
     if (!button) return;
-    if (isShuffleOn(button)) {
+    if (isShuffleOn(button) === shufflePref) {
       shuffleAttempts = 0;
       return;
     }
+
+    // Give YouTube Music a moment to apply the previous toggle before clicking
+    // again; otherwise the 2.5 s poll can flip the state twice.
+    var now = Date.now();
+    if (now - shuffleClickedAt < SHUFFLE_CLICK_COOLDOWN) return;
+    shuffleClickedAt = now;
 
     shuffleAttempts += 1;
     try {
@@ -417,42 +439,64 @@
      them without touching the site's own volume/mute state. When YouTube
      offers a skip button, click it as soon as it is visible. */
 
-  var AD_POLL_MS = 350;
+  var AD_POLL_MS = 250;
+  var AD_STALE_MS = 12000;
+  var AD_UI_SELECTOR = [
+    '.ytp-ad-player-overlay',
+    '.ytp-ad-simple-ad-badge',
+    '.ytp-ad-duration-remaining',
+    '.ytp-ad-preview-container',
+    '.ytp-ad-skip-button-modern',
+    '.ytp-ad-skip-button',
+    '.ytp-skip-ad-button'
+  ].join(',');
   var adMuted = false;
   var adSkipAt = 0;
-  var adClockSince = 0;
+  var adEvidenceAt = 0;
+  var adObserver = null;
+  var adObserverTarget = null;
+  var adObserverAt = 0;
+
+  function visibleAdUi() {
+    try {
+      var nodes = document.querySelectorAll(AD_UI_SELECTOR);
+      for (var i = 0; i < nodes.length; i++) {
+        var rect = nodes[i].getBoundingClientRect();
+        if (rect.width && rect.height) return true;
+      }
+    } catch (e) {
+      /* ignore */
+    }
+    return false;
+  }
 
   function isAdPlaying() {
     try {
       var player = document.getElementById('movie_player');
       var bar = document.querySelector('ytmusic-player-bar');
       var text = bar && bar.innerText ? bar.innerText : '';
+      var sponsored = /(^|\n)\s*Sponsored\s*(\n|$)/i.test(text);
 
-      // The player bar shows a "Sponsored" line while an ad is playing; this
-      // survives theme and layout changes.
-      if (/(^|\n)\s*Sponsored\s*(\n|$)/i.test(text)) {
-        adClockSince = 0;
+      // Strong, layout-independent signals: the "Sponsored" line and the ad
+      // overlays/badges. Any of them keeps the chain muted.
+      if (sponsored || visibleAdUi()) {
+        adEvidenceAt = Date.now();
         return true;
       }
 
-      var flagged = !!(player && player.classList.contains('ad-showing'));
-
-      if (flagged) {
-        // A stale ad-showing class would otherwise mute the song forever. The
-        // bar only shows a "current / duration" clock for real playback, never
-        // for an ad, so after a grace period treat the class as stale.
-        if (/\d{1,2}:\d{2}\s*\/\s*\d{1,2}:\d{2}/.test(text)) {
-          if (!adClockSince) adClockSince = Date.now();
-          if (Date.now() - adClockSince > 4000) return false;
-        } else {
-          adClockSince = 0;
-        }
-        return true;
+      var flagged = !!(
+        player &&
+        (player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting'))
+      );
+      if (!flagged) {
+        adEvidenceAt = 0;
+        return false;
       }
 
-      adClockSince = 0;
-      var badge = document.querySelector('.ytp-ad-simple-ad-badge');
-      return !!(badge && badge.getBoundingClientRect().width);
+      // ad-showing without any ad UI or "Sponsored" line: trust it for a while,
+      // then treat it as a stale class so the song can never stay muted.
+      if (!adEvidenceAt) adEvidenceAt = Date.now();
+      return Date.now() - adEvidenceAt < AD_STALE_MS;
     } catch (e) {
       return false;
     }
@@ -504,19 +548,51 @@
     if (active) trySkipAd();
   }
 
+  /* The class flips the instant an ad starts, so observe it directly instead of
+     waiting for the next poll — every wasted millisecond is audible ad audio. */
+  function observeAdPlayer() {
+    var player = document.getElementById('movie_player');
+    if (adObserver && adObserverTarget === player && player && player.isConnected) return;
+
+    if (adObserver) {
+      adObserver.disconnect();
+      adObserver = null;
+      adObserverTarget = null;
+    }
+    if (!player) return;
+
+    try {
+      adObserver = new MutationObserver(function () {
+        var now = Date.now();
+        if (now - adObserverAt < 60) return;
+        adObserverAt = now;
+        syncAd();
+      });
+      adObserver.observe(player, { attributes: true, attributeFilter: ['class'] });
+      adObserverTarget = player;
+    } catch (e) {
+      adObserver = null;
+      adObserverTarget = null;
+    }
+  }
+
   function startAdWatcher() {
     if (adTimer) return;
     adTimer = setInterval(function () {
       try {
+        observeAdPlayer();
         syncAd();
       } catch (e) {
         /* never let the interval throw */
       }
     }, AD_POLL_MS);
 
+    observeAdPlayer();
+
     try {
       document.addEventListener('play', syncAd, true);
       document.addEventListener('playing', syncAd, true);
+      document.addEventListener('loadedmetadata', syncAd, true);
     } catch (e) {
       /* ignore */
     }

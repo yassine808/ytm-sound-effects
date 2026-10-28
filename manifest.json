@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YTM Sound Effects",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Studio-style EQ, reverb, bass, air, punch, warmth, stereo width and echo for YouTube Music, with presets, profiles and ad silencing.",
   "permissions": ["storage"],
   "host_permissions": ["https://music.youtube.com/*"],

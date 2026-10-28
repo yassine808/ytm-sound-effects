@@ -201,6 +201,10 @@
     else els.note.textContent = text || '';
     els.note.hidden = !text;
 
+    // Any visible note adds a row; hide the footer so the popup stays inside
+    // the 600 px limit instead of growing a scrollbar.
+    if (document.body) document.body.classList.toggle('has-note', !!text);
+
     var hasAction = !!(text && actionLabel && actionFn);
     els.note.dataset.tab = hasAction ? '1' : '';
 
@@ -684,6 +688,40 @@
   // tab check + wiring
   // ---------------------------------------------------------------------------
 
+  /** Focus an open YouTube Music tab, or open one. Used by the CTA shown when
+      the active tab is not YouTube Music. */
+  function openYouTubeMusic() {
+    function done() {
+      try {
+        window.close();
+      } catch (e) {
+        /* ignore */
+      }
+    }
+
+    try {
+      chrome.tabs.query({ url: 'https://music.youtube.com/*' }, function (tabs) {
+        var tab = tabs && tabs[0];
+        if (tab && tab.id !== undefined) {
+          chrome.tabs.update(tab.id, { active: true });
+          if (tab.windowId !== undefined && chrome.windows && chrome.windows.update) {
+            chrome.windows.update(tab.windowId, { focused: true });
+          }
+        } else {
+          chrome.tabs.create({ url: 'https://music.youtube.com/' });
+        }
+        done();
+      });
+    } catch (e) {
+      try {
+        chrome.tabs.create({ url: 'https://music.youtube.com/' });
+      } catch (e2) {
+        /* ignore */
+      }
+      done();
+    }
+  }
+
   /** Warn when the content script is not live in the active tab (fresh install,
       reload needed, or the tab predates the extension). */
   function checkActiveTab() {
@@ -693,7 +731,7 @@
         var tab = tabs && tabs[0];
         var isYtm = !!(tab && /^https:\/\/music\.youtube\.com\//.test(tab.url || ''));
         if (!isYtm) {
-          showNote('Open a YouTube Music tab to use the effects.');
+          showNote('Effects live on YouTube Music.', 'Open YouTube Music', openYouTubeMusic);
           return;
         }
         chrome.tabs.sendMessage(tab.id, { type: 'YTMSE_PING' }, function (response) {

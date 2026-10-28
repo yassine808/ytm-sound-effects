@@ -234,6 +234,12 @@ body::-webkit-scrollbar-thumb {
   color: #fff;
 }
 
+/* Any visible note adds a row; dropping the footer keeps the popup inside the
+   600 px limit instead of growing a scrollbar. */
+.has-note .foot {
+  display: none;
+}
+
 /* layout ---------------------------------------------------------------- */
 
 main {
