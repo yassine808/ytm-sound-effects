@@ -1,0 +1,8 @@
+node_modules/
+*.log
+.DS_Store
+
+# The global gitignore contains the legacy `Icon?` rule which also matches
+# this folder; re-include the extension icons explicitly.
+!icons/
+!icons/*.png

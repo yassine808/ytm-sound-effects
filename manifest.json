@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "YTM Sound Effects",
+  "version": "0.1.0",
+  "description": "Reverb, 10-band equalizer and bass boost for YouTube Music, with presets and persistent settings.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://music.youtube.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://music.youtube.com/*"],
+      "js": ["audio.js", "content.js"],
+      "run_at": "document_idle",
+      "world": "ISOLATED"
+    }
+  ],
+  "action": {
+    "default_title": "YTM Sound Effects",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/16.png",
+      "48": "icons/48.png",
+      "128": "icons/128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  }
+}
