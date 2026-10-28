@@ -7,17 +7,19 @@
   </head>
   <body>
     <div class="aurora" aria-hidden="true"></div>
+    <canvas id="viz" class="viz" aria-hidden="true"></canvas>
 
     <header class="hero">
-      <img class="logo" src="icons/48.png" alt="" width="40" height="40" />
+      <img class="logo" src="icons/48.png" alt="" width="34" height="34" />
       <div class="hero-text">
         <h1>Sound Effects</h1>
         <p>YouTube Music &middot; reverb &amp; EQ</p>
       </div>
-      <label class="power" title="Bypass the effect chain">
+      <label class="power" title="Enable or bypass the effect chain">
         <input type="checkbox" id="enabled" class="sr" checked />
-        <span class="power-dot" aria-hidden="true"></span>
-        <span class="power-text" aria-hidden="true"></span>
+        <span class="power-track" aria-hidden="true"><span class="power-knob"></span></span>
+        <span class="power-state" aria-hidden="true"></span>
+        <span class="sr">Sound effects</span>
       </label>
     </header>
 
@@ -27,13 +29,14 @@
     </div>
 
     <main id="controls">
-      <div class="chips" role="group" aria-label="Presets">
+      <fieldset class="chips">
+        <legend class="sr">Presets</legend>
         <button type="button" class="chip is-active" data-preset="Flat">Flat</button>
         <button type="button" class="chip" data-preset="Bass">Bass</button>
         <button type="button" class="chip" data-preset="Vocal">Vocal</button>
         <button type="button" class="chip" data-preset="Live">Live</button>
         <button type="button" class="chip" data-preset="Hall">Hall</button>
-      </div>
+      </fieldset>
 
       <section class="card eq-card">
         <div class="card-head">
@@ -50,16 +53,16 @@
 
         <div class="slider-row">
           <div class="slider-meta">
-            <span class="slider-name">Bass boost</span>
-            <output id="bassOut" class="value">0 dB</output>
+            <label class="slider-name" for="bass">Bass boost</label>
+            <output id="bassOut" class="value" for="bass">0 dB</output>
           </div>
           <input type="range" class="h" id="bass" min="0" max="15" step="0.5" value="0" />
         </div>
 
         <div class="slider-row">
           <div class="slider-meta">
-            <span class="slider-name">Pre-amp</span>
-            <output id="preampOut" class="value">0 dB</output>
+            <label class="slider-name" for="preamp">Pre-amp</label>
+            <output id="preampOut" class="value" for="preamp">0 dB</output>
           </div>
           <input type="range" class="h" id="preamp" min="-12" max="12" step="1" value="0" />
         </div>
@@ -72,25 +75,45 @@
 
         <div class="slider-row">
           <div class="slider-meta">
-            <span class="slider-name">Mix</span>
-            <output id="mixOut" class="value">0 %</output>
+            <label class="slider-name" for="mix">Mix</label>
+            <output id="mixOut" class="value" for="mix">0 %</output>
           </div>
           <input type="range" class="h" id="mix" min="0" max="100" step="1" value="0" />
         </div>
 
         <div class="slider-row">
           <div class="slider-meta">
-            <span class="slider-name">Decay</span>
-            <output id="decayOut" class="value">1.8 s</output>
+            <label class="slider-name" for="decay">Decay</label>
+            <output id="decayOut" class="value" for="decay">1.8 s</output>
           </div>
           <input type="range" class="h" id="decay" min="0.3" max="4" step="0.1" value="1.8" />
         </div>
       </section>
+
+      <fieldset class="profiles">
+        <legend class="sr">Settings profiles</legend>
+
+        <div class="prof-row" id="profMain">
+          <label class="sr" for="profileSelect">Saved profiles</label>
+          <select id="profileSelect" class="txt" disabled>
+            <option value="">No saved profiles</option>
+          </select>
+          <button id="profileSaveStart" class="mini" type="button">Save&hellip;</button>
+          <button id="profileDelete" class="mini mini-del" type="button" title="Delete profile" aria-label="Delete profile" disabled>&times;</button>
+        </div>
+
+        <div class="prof-row" id="profSave" hidden>
+          <label class="sr" for="profileName">Profile name</label>
+          <input id="profileName" class="txt" type="text" maxlength="24" placeholder="Profile name" required />
+          <button id="profileSave" class="mini" type="button">Save</button>
+          <button id="profileCancel" class="mini mini-del" type="button" title="Cancel" aria-label="Cancel">&times;</button>
+        </div>
+      </fieldset>
     </main>
 
     <footer class="foot">
       <button id="reset" type="button" class="ghost">Reset all</button>
-      <span class="version">v0.2.0</span>
+      <span class="version">v0.3.0</span>
     </footer>
 
     <script src="audio.js"></script>

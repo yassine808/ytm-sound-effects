@@ -1,11 +1,14 @@
 ﻿/*
- * YTM Sound Effects â€” popup UI.
- * Reads/writes chrome.storage.local["ytmse:config"]; the content script applies changes live.
+ * YTM Sound Effects - popup UI.
+ * Reads/writes chrome.storage.local["ytmse:config"]; the content script applies
+ * changes live and streams analyser frames for the spectrum graph.
  */
 (function () {
   'use strict';
 
   var STORAGE_KEY = 'ytmse:config';
+  var BARS = 56;
+  var FRAME_MS = 90;
 
   var api = window.YTMAudio;
   var BANDS = (api && api.BANDS) || [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
@@ -28,8 +31,30 @@
   var bandOuts = [];
   var bandMeters = [];
   var bandWraps = [];
+  var bandLive = [];
   var saveTimer = null;
   var storageBroken = false;
+
+  var PROFILES_KEY = 'ytmse:profiles';
+  var profiles = {};
+  var deleteArmed = false;
+  var deleteTimer = null;
+
+  var viz = {
+    canvas: null,
+    ctx: null,
+    w: 0,
+    h: 0,
+    timer: null,
+    busy: false,
+    fails: 0,
+    reduced: false
+  };
+  var smoothBars = new Array(BARS);
+  var smoothBands = new Array(BANDS.length);
+  var i;
+  for (i = 0; i < BARS; i++) smoothBars[i] = 0;
+  for (i = 0; i < smoothBands.length; i++) smoothBands[i] = 0;
 
   // ---------------------------------------------------------------------------
   // helpers
@@ -51,9 +76,9 @@
     return hz >= 1000 ? hz / 1000 + 'k' : String(hz);
   }
 
-  function paintBand(i, v) {
-    var meter = bandMeters[i];
-    var band = bandWraps[i];
+  function paintBand(index, v) {
+    var meter = bandMeters[index];
+    var band = bandWraps[index];
     if (!meter || !band) return;
 
     var pct = (Math.abs(v) / 12) * 50;
@@ -84,17 +109,17 @@
     paintRange(els.mix, parseFloat(els.mix.value) || 0);
     paintRange(els.decay, ((parseFloat(els.decay.value) || 1.8) - 0.3) / 3.7 * 100);
 
-    for (var i = 0; i < bandInputs.length; i++) {
-      paintBand(i, parseFloat(bandInputs[i].value) || 0);
+    for (var b = 0; b < bandInputs.length; b++) {
+      paintBand(b, parseFloat(bandInputs[b].value) || 0);
     }
   }
 
   function syncChips(name) {
     var chips = document.querySelectorAll('.chip[data-preset]');
-    for (var i = 0; i < chips.length; i++) {
-      var on = chips[i].dataset.preset === name;
-      chips[i].classList.toggle('is-active', on);
-      chips[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+    for (var c = 0; c < chips.length; c++) {
+      var on = chips[c].dataset.preset === name;
+      chips[c].classList.toggle('is-active', on);
+      chips[c].setAttribute('aria-pressed', on ? 'true' : 'false');
     }
   }
 
@@ -109,8 +134,8 @@
       if (Math.abs(p.reverbDecay - cfg.reverbDecay) > EPS) continue;
 
       var sameEq = true;
-      for (var i = 0; i < p.eq.length; i++) {
-        if (Math.abs(p.eq[i] - cfg.eq[i]) > EPS) {
+      for (var e = 0; e < p.eq.length; e++) {
+        if (Math.abs(p.eq[e] - cfg.eq[e]) > EPS) {
           sameEq = false;
           break;
         }
@@ -144,34 +169,6 @@
     }
   }
 
-  /** Warn when the content script is not live in the active tab (fresh install,
-      reload needed, or the tab predates the extension). */
-  function checkActiveTab() {
-    if (typeof chrome === 'undefined' || !chrome.tabs) return;
-    try {
-      chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-        var tab = tabs && tabs[0];
-        var isYtm = !!(tab && /^https:\/\/music\.youtube\.com\//.test(tab.url || ''));
-        if (!isYtm) {
-          showNote('Open a YouTube Music tab to use the effects.');
-          return;
-        }
-        chrome.tabs.sendMessage(tab.id, { type: 'YTMSE_PING' }, function (response) {
-          if (chrome.runtime.lastError || !response || !response.ok) {
-            showNote('Reload the YouTube Music tab to activate the effects.', 'Reload tab', function () {
-              chrome.tabs.reload(tab.id);
-              window.close();
-            });
-            return;
-          }
-          hideTabNote();
-        });
-      });
-    } catch (e) {
-      /* ignore */
-    }
-  }
-
   function hideTabNote() {
     if (els.note && els.note.dataset.tab === '1') showNote('');
   }
@@ -181,13 +178,121 @@
   }
 
   // ---------------------------------------------------------------------------
+  // live spectrum (canvas behind the UI + the EQ meters)
+  // ---------------------------------------------------------------------------
+
+  function fitViz() {
+    if (!viz.canvas) return;
+    var dpr = window.devicePixelRatio || 1;
+    viz.w = Math.max(1, window.innerWidth);
+    viz.h = Math.max(1, window.innerHeight);
+    viz.canvas.width = Math.round(viz.w * dpr);
+    viz.canvas.height = Math.round(viz.h * dpr);
+    viz.canvas.style.width = viz.w + 'px';
+    viz.canvas.style.height = viz.h + 'px';
+    viz.ctx = viz.canvas.getContext('2d');
+    if (viz.ctx) viz.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function drawSpectrum() {
+    var ctx = viz.ctx;
+    if (!ctx) return;
+
+    var w = viz.w;
+    var h = viz.h;
+    ctx.clearRect(0, 0, w, h);
+
+    var gap = 2;
+    var barWidth = (w - gap * (BARS - 1)) / BARS;
+    var gradient = ctx.createLinearGradient(0, h, 0, h * 0.18);
+    gradient.addColorStop(0, 'rgba(255, 45, 45, 0.55)');
+    gradient.addColorStop(0.55, 'rgba(255, 80, 80, 0.22)');
+    gradient.addColorStop(1, 'rgba(255, 120, 120, 0)');
+    ctx.fillStyle = gradient;
+
+    for (var b = 0; b < BARS; b++) {
+      var v = smoothBars[b];
+      if (v <= 0.001) continue;
+      var bh = Math.max(1, Math.pow(v, 0.8) * h * 0.92);
+      ctx.fillRect(b * (barWidth + gap), h - bh, barWidth, bh);
+    }
+  }
+
+  function renderFrame(res) {
+    var b;
+    for (b = 0; b < BARS; b++) {
+      var rawBar = res.bars && typeof res.bars[b] === 'number' ? res.bars[b] : 0;
+      var target = Math.min(1, Math.pow(rawBar, 0.7) * 1.15);
+      smoothBars[b] += (target - smoothBars[b]) * 0.45;
+    }
+
+    for (b = 0; b < bandLive.length; b++) {
+      var rawBand = res.bands && typeof res.bands[b] === 'number' ? res.bands[b] : 0;
+      var bandTarget = Math.min(1, Math.pow(rawBand, 0.7) * 1.35);
+      smoothBands[b] += (bandTarget - smoothBands[b]) * 0.45;
+      if (bandLive[b]) {
+        bandLive[b].style.transform =
+          'translateX(-50%) scaleY(' + smoothBands[b].toFixed(3) + ')';
+      }
+    }
+
+    drawSpectrum();
+  }
+
+  function requestFrame(tabId) {
+    viz.busy = true;
+    try {
+      chrome.tabs.sendMessage(tabId, { type: 'YTMSE_FRAME' }, function (res) {
+        viz.busy = false;
+        if (chrome.runtime.lastError || !res || res.ok !== true) {
+          viz.fails += 1;
+          if (viz.fails > 4) stopViz();
+          return;
+        }
+        viz.fails = 0;
+        renderFrame(res);
+      });
+    } catch (e) {
+      viz.busy = false;
+      stopViz();
+    }
+  }
+
+  function stopViz() {
+    if (viz.timer) {
+      clearTimeout(viz.timer);
+      viz.timer = null;
+    }
+    viz.busy = false;
+  }
+
+  function startViz(tabId) {
+    if (!viz.canvas || !tabId || viz.timer) return;
+    fitViz();
+
+    // Users who asked for less motion still get the current spectrum, just
+    // frozen instead of animated.
+    if (viz.reduced) {
+      requestFrame(tabId);
+      return;
+    }
+
+    var tick = function () {
+      viz.timer = setTimeout(tick, FRAME_MS);
+      if (viz.busy) return;
+      requestFrame(tabId);
+    };
+    viz.timer = setTimeout(tick, 0);
+  }
+
+  // ---------------------------------------------------------------------------
   // build EQ UI
   // ---------------------------------------------------------------------------
 
   function buildEq() {
     var frag = document.createDocumentFragment();
 
-    BANDS.forEach(function (hz, i) {
+    BANDS.forEach(function (hz, index) {
       var band = document.createElement('div');
       band.className = 'band is-flat';
 
@@ -207,6 +312,10 @@
       var meter = document.createElement('span');
       meter.className = 'fader-meter';
 
+      var live = document.createElement('span');
+      live.className = 'fader-live';
+      live.setAttribute('aria-hidden', 'true');
+
       var input = document.createElement('input');
       input.type = 'range';
       input.className = 'vert';
@@ -214,12 +323,13 @@
       input.max = '12';
       input.step = '1';
       input.value = '0';
-      input.dataset.index = String(i);
+      input.dataset.index = String(index);
       input.setAttribute('aria-label', fmtHz(hz) + ' Hz gain');
       input.title = fmtHz(hz) + ' Hz';
 
       fader.appendChild(rail);
       fader.appendChild(zero);
+      fader.appendChild(live);
       fader.appendChild(meter);
       fader.appendChild(input);
 
@@ -236,10 +346,11 @@
       bandOuts.push(out);
       bandMeters.push(meter);
       bandWraps.push(band);
+      bandLive.push(live);
 
       input.addEventListener('input', function () {
         out.textContent = fmtBand(parseFloat(input.value) || 0);
-        paintBand(i, parseFloat(input.value) || 0);
+        paintBand(index, parseFloat(input.value) || 0);
         onUserChange();
       });
     });
@@ -273,9 +384,9 @@
     els.mix.value = String(Math.round(c.reverbMix * 100));
     els.decay.value = String(c.reverbDecay);
 
-    for (var i = 0; i < bandInputs.length; i++) {
-      bandInputs[i].value = String(c.eq[i]);
-      bandOuts[i].textContent = fmtBand(c.eq[i]);
+    for (var b = 0; b < bandInputs.length; b++) {
+      bandInputs[b].value = String(c.eq[b]);
+      bandOuts[b].textContent = fmtBand(c.eq[b]);
     }
 
     updateLabels();
@@ -303,7 +414,7 @@
     if (storageBroken) return;
     if (!storageAvailable()) {
       storageBroken = true;
-      showNote('chrome.storage is unavailable â€” settings will not persist.');
+      showNote('chrome.storage is unavailable - settings will not persist.');
       return;
     }
     var payload = {};
@@ -335,7 +446,7 @@
   function load() {
     if (!storageAvailable()) {
       storageBroken = true;
-      showNote('chrome.storage is unavailable â€” showing defaults.');
+      showNote('chrome.storage is unavailable - showing defaults.');
       render(DEFAULTS);
       return;
     }
@@ -377,8 +488,163 @@
   }
 
   // ---------------------------------------------------------------------------
-  // init
+  // profiles
   // ---------------------------------------------------------------------------
+
+  function renderProfileOptions(selected) {
+    if (!els.profileSelect) return;
+
+    var names = Object.keys(profiles).sort(function (a, b) {
+      return a.localeCompare(b, undefined, { sensitivity: 'base' });
+    });
+
+    els.profileSelect.innerHTML = '';
+
+    var placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = names.length ? 'Load a profile\u2026' : 'No saved profiles';
+    els.profileSelect.appendChild(placeholder);
+
+    if (!names.length) {
+      els.profileSelect.disabled = true;
+      els.profileDelete.disabled = true;
+      return;
+    }
+
+    names.forEach(function (name) {
+      var option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      els.profileSelect.appendChild(option);
+    });
+
+    els.profileSelect.disabled = false;
+    els.profileSelect.value = selected && profiles[selected] ? selected : '';
+    els.profileDelete.disabled = !profiles[els.profileSelect.value];
+  }
+
+  function loadProfiles() {
+    if (!storageAvailable()) return;
+    try {
+      chrome.storage.local.get(PROFILES_KEY, function (items) {
+        if (chrome.runtime && chrome.runtime.lastError) return;
+        var stored = items && items[PROFILES_KEY];
+        profiles = stored && typeof stored === 'object' ? stored : {};
+        renderProfileOptions();
+      });
+    } catch (e) {
+      /* profile storage must never break the popup */
+    }
+  }
+
+  function persistProfiles() {
+    if (!storageAvailable()) return;
+    try {
+      var payload = {};
+      payload[PROFILES_KEY] = profiles;
+      chrome.storage.local.set(payload, function () {
+        if (chrome.runtime && chrome.runtime.lastError) {
+          showNote('Could not save profiles: ' + chrome.runtime.lastError.message);
+        }
+      });
+    } catch (e) {
+      showNote('Could not save profiles: ' + (e && e.message ? e.message : e));
+    }
+  }
+
+  function openSaveRow() {
+    els.profMain.hidden = true;
+    els.profSave.hidden = false;
+    els.profileName.value = els.profileSelect.value || '';
+    els.profileName.focus();
+    els.profileName.select();
+  }
+
+  function closeSaveRow() {
+    els.profSave.hidden = true;
+    els.profMain.hidden = false;
+  }
+
+  function saveProfile() {
+    var name = (els.profileName.value || '').trim();
+    if (!name) {
+      els.profileName.focus();
+      return;
+    }
+
+    profiles[name] = readUi();
+    persistProfiles();
+    closeSaveRow();
+    renderProfileOptions(name);
+  }
+
+  function disarmDelete() {
+    deleteArmed = false;
+    if (deleteTimer) {
+      clearTimeout(deleteTimer);
+      deleteTimer = null;
+    }
+    if (els.profileDelete) {
+      els.profileDelete.textContent = '\u00d7';
+      els.profileDelete.classList.remove('armed');
+    }
+  }
+
+  function deleteSelectedProfile() {
+    var name = els.profileSelect.value;
+    if (!name || !profiles[name]) return;
+    delete profiles[name];
+    persistProfiles();
+    disarmDelete();
+    renderProfileOptions();
+  }
+
+  function onDeleteClick() {
+    if (els.profileSelect.disabled || !els.profileSelect.value) return;
+
+    if (deleteArmed) {
+      deleteSelectedProfile();
+      return;
+    }
+
+    deleteArmed = true;
+    els.profileDelete.textContent = 'Sure?';
+    els.profileDelete.classList.add('armed');
+    deleteTimer = setTimeout(disarmDelete, 2600);
+  }
+
+  // ---------------------------------------------------------------------------
+  // tab check + wiring
+  // ---------------------------------------------------------------------------
+
+  /** Warn when the content script is not live in the active tab (fresh install,
+      reload needed, or the tab predates the extension). */
+  function checkActiveTab() {
+    if (typeof chrome === 'undefined' || !chrome.tabs) return;
+    try {
+      chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+        var tab = tabs && tabs[0];
+        var isYtm = !!(tab && /^https:\/\/music\.youtube\.com\//.test(tab.url || ''));
+        if (!isYtm) {
+          showNote('Open a YouTube Music tab to use the effects.');
+          return;
+        }
+        chrome.tabs.sendMessage(tab.id, { type: 'YTMSE_PING' }, function (response) {
+          if (chrome.runtime.lastError || !response || !response.ok) {
+            showNote('Reload the YouTube Music tab to activate the effects.', 'Reload tab', function () {
+              chrome.tabs.reload(tab.id);
+              window.close();
+            });
+            return;
+          }
+          hideTabNote();
+          startViz(tab.id);
+        });
+      });
+    } catch (e) {
+      /* ignore */
+    }
+  }
 
   function collect() {
     els.enabled = document.getElementById('enabled');
@@ -396,12 +662,29 @@
     els.decay = document.getElementById('decay');
     els.decayOut = document.getElementById('decayOut');
     els.reset = document.getElementById('reset');
+    els.vizCanvas = document.getElementById('viz');
+    els.profMain = document.getElementById('profMain');
+    els.profSave = document.getElementById('profSave');
+    els.profileSelect = document.getElementById('profileSelect');
+    els.profileName = document.getElementById('profileName');
+    els.profileSave = document.getElementById('profileSave');
+    els.profileCancel = document.getElementById('profileCancel');
+    els.profileSaveStart = document.getElementById('profileSaveStart');
+    els.profileDelete = document.getElementById('profileDelete');
   }
 
   function init() {
     collect();
     buildEq();
     render(DEFAULTS);
+
+    viz.canvas = els.vizCanvas;
+    viz.reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    fitViz();
+    window.addEventListener('resize', function () {
+      fitViz();
+      drawSpectrum();
+    });
 
     ['preamp', 'bass', 'mix', 'decay'].forEach(function (key) {
       els[key].addEventListener('input', onUserChange);
@@ -410,8 +693,8 @@
     els.enabled.addEventListener('change', onUserChange);
 
     var chips = document.querySelectorAll('.chip[data-preset]');
-    for (var i = 0; i < chips.length; i++) {
-      chips[i].addEventListener('click', function () {
+    for (var c = 0; c < chips.length; c++) {
+      chips[c].addEventListener('click', function () {
         applyPreset(this.dataset.preset);
       });
     }
@@ -421,7 +704,30 @@
       saveNow();
     });
 
+    els.profileSaveStart.addEventListener('click', openSaveRow);
+    els.profileCancel.addEventListener('click', closeSaveRow);
+    els.profileSave.addEventListener('click', saveProfile);
+    els.profileDelete.addEventListener('click', onDeleteClick);
+
+    els.profileSelect.addEventListener('change', function () {
+      var cfg = profiles[this.value];
+      els.profileDelete.disabled = !cfg;
+      if (!cfg) return;
+      render(normalize(cfg));
+      saveNow();
+    });
+
+    els.profileName.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        saveProfile();
+      } else if (event.key === 'Escape') {
+        closeSaveRow();
+      }
+    });
+
     load();
+    loadProfiles();
     checkActiveTab();
   }
 

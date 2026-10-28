@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "YTM Sound Effects",
-  "version": "0.2.0",
-  "description": "Reverb, 10-band equalizer and bass boost for YouTube Music, with presets and persistent settings.",
+  "version": "0.3.0",
+  "description": "Reverb, 10-band equalizer, bass boost and ad silencing for YouTube Music, with presets, profiles and persistent settings.",
   "permissions": ["storage"],
   "host_permissions": ["https://music.youtube.com/*"],
   "content_scripts": [

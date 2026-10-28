@@ -210,13 +210,22 @@
     this.limiter.attack.value = LIMITER.attack;
     this.limiter.release.value = LIMITER.release;
 
+    // Master mute, used for ads. Kept inside the chain so the page's own
+    // volume/mute state is never modified.
+    this.master = ctx.createGain();
+    this.master.gain.value = 1;
+    this._adMuted = false;
+
     // Post-chain analyser: lets the extension (and tests) verify that samples
     // actually reach the destination instead of failing silently.
     this.analyser = ctx.createAnalyser();
-    this.analyser.fftSize = 1024;
+    this.analyser.fftSize = 2048;
+    this.analyser.smoothingTimeConstant = 0.72;
     this._levelBuffer = new Float32Array(this.analyser.fftSize);
+    this._spectrumBuffer = null;
 
-    // --- wiring: source -> preamp -> eq[0..9] -> bass -> {dry, convolver->wet} -> limiter -> destination
+    // --- wiring: source -> preamp -> eq[0..9] -> bass -> {dry, convolver->wet}
+    //     -> limiter -> master -> analyser -> destination
     this.source.connect(this.preamp);
 
     var node = this.preamp;
@@ -233,7 +242,8 @@
     this.dry.connect(this.limiter);
     this.wet.connect(this.limiter);
 
-    this.limiter.connect(this.analyser);
+    this.limiter.connect(this.master);
+    this.master.connect(this.analyser);
     this.analyser.connect(ctx.destination);
 
     this._impulseDecay = -1;
@@ -278,6 +288,17 @@
     this._rampParam(this.wet.gain, mix, now);
 
     // limiter stays in the path in every mode (it is transparent below -1 dBFS).
+  };
+
+  /** Silence the chain (ads) without touching the site's volume/mute state. */
+  SoundChain.prototype.setMuted = function (muted) {
+    if (this.disposed || !this.master) return;
+    this._adMuted = !!muted;
+    this._rampParam(this.master.gain, muted ? 0 : 1, this.context.currentTime);
+  };
+
+  SoundChain.prototype.isMuted = function () {
+    return !!this._adMuted;
   };
 
   SoundChain.prototype._rampParam = function (param, value, now) {
@@ -329,6 +350,21 @@
     }
   };
 
+  /** Frequency magnitudes (0..255 per bin) for the popup's spectrum graph. */
+  SoundChain.prototype.getSpectrum = function () {
+    if (this.disposed || !this.analyser) return null;
+    try {
+      var bins = this.analyser.frequencyBinCount;
+      if (!this._spectrumBuffer || this._spectrumBuffer.length !== bins) {
+        this._spectrumBuffer = new Uint8Array(bins);
+      }
+      this.analyser.getByteFrequencyData(this._spectrumBuffer);
+      return this._spectrumBuffer;
+    } catch (e) {
+      return null;
+    }
+  };
+
   /** Disconnect this chain's nodes. The MediaElementSource is kept alive (browser limit). */
   SoundChain.prototype.dispose = function () {
     if (this.disposed) return;
@@ -342,6 +378,7 @@
     disconnectQuietly(this.convolver);
     disconnectQuietly(this.wet);
     disconnectQuietly(this.limiter);
+    disconnectQuietly(this.master);
     disconnectQuietly(this.analyser);
 
     try {
