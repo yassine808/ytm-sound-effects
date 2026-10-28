@@ -1,7 +1,10 @@
 # YTM Sound Effects — Plan
 
-Chrome (MV3) extension that adds an audio effects chain to YouTube Music:
+Brave / Chromium (MV3) extension that adds an audio effects chain to YouTube Music:
 **reverb, multi-band equalizer, bass boost**, plus master volume.
+
+> Status: v0.4 ships the MVP below plus Air, Punch, Warmth, Width and Echo
+> effects, and the visualizer is scoped to the EQ card.
 
 Target site: `https://music.youtube.com/*`
 

@@ -660,7 +660,7 @@
   // ---------------------------------------------------------------------------
 
   var BAND_HZ = window.YTMAudio.BANDS || [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
-  var SPECTRUM_BARS = 56;
+  var SPECTRUM_BARS = 40;
   var rangeCache = null;
   var rangeKey = '';
 
@@ -704,7 +704,7 @@
     return sum / ((range[1] - range[0]) * 255);
   }
 
-  /** One frame of analyser data: 56 log-spaced bars + the 10 EQ band levels. */
+  /** One frame of analyser data: 40 log-spaced bars + the 10 EQ band levels. */
   function analyseFrame() {
     if (!chain || chain.disposed) return { ok: false, reason: 'not attached' };
     var spectrum = chain.getSpectrum ? chain.getSpectrum() : null;

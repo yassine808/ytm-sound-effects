@@ -1,8 +1,12 @@
 /*
  * YTM Sound Effects — audio graph (pure Web Audio, no chrome.* APIs).
  *
- *   <video> --source--> preamp --> EQ x10 --> bass shelf --+--> dry ----+
- *                                                          +--> conv --> wet --> limiter --> destination
+ *   <video> -> source -> preamp -> EQ x10 -> bass -> air -> width
+ *           -> warmth -> punch -> +-> dry ------------------------+
+ *                                +-> convolver -> reverb wet -----+-> limiter
+ *                                +-> delay -> echo wet ----------+   -> master
+ *                                                                    -> analyser
+ *                                                                    -> destination
  *
  * Exposes: window.YTMAudio = { SoundChain, defaultConfig, normalizeConfig, DEFAULTS, BANDS }
  */
@@ -12,6 +16,11 @@
   var BANDS = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
   var EQ_Q = 1.1;
   var BASS_FREQ = 100;
+  var AIR_FREQ = 4200;
+  var ECHO_TIME = 0.28;
+  var ECHO_FEEDBACK = 0.34;
+  var ECHO_TONE_HZ = 3200;
+  var SATURATION_DRIVE = 2.5;
   var RAMP = 0.02; // smoothing time constant (s)
   var DECAY_EPSILON = 0.05; // seconds; below this we reuse the current IR
 
@@ -27,8 +36,13 @@
       preampDb: 0,
       eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       bassDb: 0,
+      airDb: 0,
+      width: 1,
+      punch: 0,
+      warmth: 0,
       reverbMix: 0,
-      reverbDecay: 1.8
+      reverbDecay: 1.8,
+      echoMix: 0
     };
   }
 
@@ -50,8 +64,13 @@
       preampDb: num(raw.preampDb, base.preampDb, -12, 12),
       eq: base.eq.slice(),
       bassDb: num(raw.bassDb, base.bassDb, 0, 15),
+      airDb: num(raw.airDb, base.airDb, -12, 12),
+      width: num(raw.width, base.width, 0, 2),
+      punch: num(raw.punch, base.punch, 0, 1),
+      warmth: num(raw.warmth, base.warmth, 0, 1),
       reverbMix: num(raw.reverbMix, base.reverbMix, 0, 1),
-      reverbDecay: num(raw.reverbDecay, base.reverbDecay, 0.3, 4)
+      reverbDecay: num(raw.reverbDecay, base.reverbDecay, 0.3, 4),
+      echoMix: num(raw.echoMix, base.echoMix, 0, 1)
     };
 
     if (Array.isArray(raw.eq)) {
@@ -194,6 +213,69 @@
     this.bass.frequency.value = BASS_FREQ;
     this.bass.gain.value = 0;
 
+    // Air: a high shelf, so the top end can be opened up without editing bands.
+    this.air = ctx.createBiquadFilter();
+    this.air.type = 'highshelf';
+    this.air.frequency.value = AIR_FREQ;
+    this.air.gain.value = 0;
+
+    // Stereo width as a mid/side matrix. width = 1 reconstructs L/R exactly;
+    // 0 collapses to mono, 2 stretches the sides.
+    this._widthNodes = [];
+    var split = ctx.createChannelSplitter(2);
+    var merge = ctx.createChannelMerger(2);
+    var mid = ctx.createGain();
+    var side = ctx.createGain();
+    var midL = ctx.createGain();
+    var midR = ctx.createGain();
+    var sideL = ctx.createGain();
+    var sideR = ctx.createGain();
+    this._widthSideL = ctx.createGain();
+    this._widthSideR = ctx.createGain();
+    midL.gain.value = 0.5;
+    midR.gain.value = 0.5;
+    sideL.gain.value = 0.5;
+    sideR.gain.value = -0.5;
+    this._widthSideL.gain.value = 1;
+    this._widthSideR.gain.value = -1;
+    this._widthNodes.push(
+      split, merge, mid, side, midL, midR, sideL, sideR,
+      this._widthSideL, this._widthSideR
+    );
+
+    // Warmth: parallel soft saturation. The dry path stays clean, the wet path
+    // only adds harmonics, and 0 is fully neutral.
+    this.warmDry = ctx.createGain();
+    this.warmWet = ctx.createGain();
+    this.shaper = ctx.createWaveShaper();
+    this.shaper.curve = buildSaturationCurve(SATURATION_DRIVE);
+    this.shaper.oversample = '2x';
+    this.warmDry.gain.value = 1;
+    this.warmWet.gain.value = 0;
+
+    // Punch: gentle bus compression with makeup, 0 = transparent ratio of 1.
+    this.punch = ctx.createDynamicsCompressor();
+    this.punch.threshold.value = -6;
+    this.punch.knee.value = 6;
+    this.punch.ratio.value = 1;
+    this.punch.attack.value = 0.006;
+    this.punch.release.value = 0.18;
+
+    this.punchMakeup = ctx.createGain();
+    this.punchMakeup.gain.value = 1;
+
+    // Echo: a single warm tap with a short feedback tail.
+    this.echoDelay = ctx.createDelay(1);
+    this.echoDelay.delayTime.value = ECHO_TIME;
+    this.echoTone = ctx.createBiquadFilter();
+    this.echoTone.type = 'lowpass';
+    this.echoTone.frequency.value = ECHO_TONE_HZ;
+    this.echoTone.Q.value = 0.7;
+    this.echoFeedback = ctx.createGain();
+    this.echoFeedback.gain.value = ECHO_FEEDBACK;
+    this.echoWet = ctx.createGain();
+    this.echoWet.gain.value = 0;
+
     this.dry = ctx.createGain();
     this.dry.gain.value = 1;
 
@@ -224,8 +306,10 @@
     this._levelBuffer = new Float32Array(this.analyser.fftSize);
     this._spectrumBuffer = null;
 
-    // --- wiring: source -> preamp -> eq[0..9] -> bass -> {dry, convolver->wet}
-    //     -> limiter -> master -> analyser -> destination
+    // --- wiring:
+    // source -> preamp -> eq[0..9] -> bass -> air -> width (M/S)
+    //   -> warmth (dry + saturated) -> punch -> {dry, convolver->wet, echo}
+    //   -> limiter -> master -> analyser -> destination
     this.source.connect(this.preamp);
 
     var node = this.preamp;
@@ -234,13 +318,45 @@
       node = this.eq[j];
     }
     node.connect(this.bass);
+    this.bass.connect(this.air);
+    this.air.connect(split);
 
-    this.bass.connect(this.dry);
-    this.bass.connect(this.convolver);
+    split.connect(midL, 0);
+    midL.connect(mid);
+    split.connect(midR, 1);
+    midR.connect(mid);
+    split.connect(sideL, 0);
+    sideL.connect(side);
+    split.connect(sideR, 1);
+    sideR.connect(side);
+    mid.connect(merge, 0);
+    mid.connect(merge, 1);
+    side.connect(this._widthSideL);
+    this._widthSideL.connect(merge, 0);
+    side.connect(this._widthSideR);
+    this._widthSideR.connect(merge, 1);
+
+    merge.connect(this.warmDry);
+    merge.connect(this.shaper);
+    this.shaper.connect(this.warmWet);
+    this.warmDry.connect(this.punch);
+    this.warmWet.connect(this.punch);
+
+    this.punch.connect(this.punchMakeup);
+    this.punchMakeup.connect(this.dry);
+    this.punchMakeup.connect(this.convolver);
+    this.punchMakeup.connect(this.echoDelay);
+
     this.convolver.connect(this.wet);
+
+    this.echoDelay.connect(this.echoTone);
+    this.echoTone.connect(this.echoFeedback);
+    this.echoFeedback.connect(this.echoDelay);
+    this.echoTone.connect(this.echoWet);
 
     this.dry.connect(this.limiter);
     this.wet.connect(this.limiter);
+    this.echoWet.connect(this.limiter);
 
     this.limiter.connect(this.master);
     this.master.connect(this.analyser);
@@ -278,8 +394,29 @@
       this._rampParam(this.eq[i].gain, on ? cfg.eq[i] : 0, now);
     }
 
-    // bass shelf
+    // bass + air shelves
     this._rampParam(this.bass.gain, on ? cfg.bassDb : 0, now);
+    this._rampParam(this.air.gain, on ? cfg.airDb : 0, now);
+
+    // stereo width: 1 = neutral, 0 = mono, 2 = wide
+    var width = on ? cfg.width : 1;
+    this._rampParam(this._widthSideL.gain, width, now);
+    this._rampParam(this._widthSideR.gain, -width, now);
+
+    // warmth: parallel saturated path
+    var warmth = on ? cfg.warmth : 0;
+    this._rampParam(this.warmDry.gain, 1 - warmth * 0.1, now);
+    this._rampParam(this.warmWet.gain, warmth * 0.18, now);
+
+    // punch compressor
+    var punch = on ? cfg.punch : 0;
+    this._rampParam(this.punch.threshold, -6 - 24 * punch, now);
+    this._rampParam(this.punch.ratio, 1 + 5 * punch, now);
+    this._rampParam(this.punchMakeup.gain, dbToGain(punch * 6), now);
+
+    // echo send
+    var echo = on ? cfg.echoMix : 0;
+    this._rampParam(this.echoWet.gain, echo * 0.5, now);
 
     // reverb wet/dry crossfade
     var mix = on ? cfg.reverbMix : 0;
@@ -321,8 +458,13 @@
       preampDb: c.preampDb,
       eq: c.eq.slice(),
       bassDb: c.bassDb,
+      airDb: c.airDb,
+      width: c.width,
+      punch: c.punch,
+      warmth: c.warmth,
       reverbMix: c.reverbMix,
-      reverbDecay: c.reverbDecay
+      reverbDecay: c.reverbDecay,
+      echoMix: c.echoMix
     };
   };
 
@@ -374,6 +516,17 @@
     disconnectQuietly(this.preamp);
     for (var i = 0; i < this.eq.length; i++) disconnectQuietly(this.eq[i]);
     disconnectQuietly(this.bass);
+    disconnectQuietly(this.air);
+    for (var w = 0; w < this._widthNodes.length; w++) disconnectQuietly(this._widthNodes[w]);
+    disconnectQuietly(this.warmDry);
+    disconnectQuietly(this.warmWet);
+    disconnectQuietly(this.shaper);
+    disconnectQuietly(this.punch);
+    disconnectQuietly(this.punchMakeup);
+    disconnectQuietly(this.echoDelay);
+    disconnectQuietly(this.echoTone);
+    disconnectQuietly(this.echoFeedback);
+    disconnectQuietly(this.echoWet);
     disconnectQuietly(this.dry);
     disconnectQuietly(this.convolver);
     disconnectQuietly(this.wet);
@@ -411,6 +564,22 @@
       }
     }
     return buffer;
+  }
+
+  /**
+   * Normalised tanh curve: hard-pressed peaks, but unity-ish gain at the low
+   * levels where most music lives, so the wet path does not jump in volume.
+   */
+  function buildSaturationCurve(drive) {
+    var n = 2048;
+    var curve = new Float32Array(n);
+    var k = drive || 1;
+    var norm = Math.tanh(k);
+    for (var i = 0; i < n; i++) {
+      var x = (i * 2) / (n - 1) - 1;
+      curve[i] = Math.tanh(k * x) / norm;
+    }
+    return curve;
   }
 
   // ---------------------------------------------------------------------------

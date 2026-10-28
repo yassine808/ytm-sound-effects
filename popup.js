@@ -7,23 +7,65 @@
   'use strict';
 
   var STORAGE_KEY = 'ytmse:config';
-  var BARS = 56;
-  var FRAME_MS = 90;
+  var BARS = 40;
+  var FRAME_MS = 55;
 
   var api = window.YTMAudio;
   var BANDS = (api && api.BANDS) || [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
   var DEFAULTS = api && api.defaultConfig
     ? api.defaultConfig()
-    : { enabled: true, preampDb: 0, eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], bassDb: 0, reverbMix: 0, reverbDecay: 1.8 };
+    : {
+        enabled: true,
+        preampDb: 0,
+        eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        bassDb: 0,
+        airDb: 0,
+        width: 1,
+        punch: 0,
+        warmth: 0,
+        reverbMix: 0,
+        reverbDecay: 1.8,
+        echoMix: 0
+      };
   var normalize = api && api.normalizeConfig ? api.normalizeConfig : function (c) { return c || DEFAULTS; };
 
   // Hardcoded presets. eq is the 10-band gain array (dB), in BANDS order.
   var PRESETS = {
-    Flat: { preampDb: 0, eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], bassDb: 0, reverbMix: 0, reverbDecay: 1.8 },
-    Bass: { preampDb: -2, eq: [6, 5.5, 3, 1, 0, -1, -1, 0.5, 1, 1], bassDb: 8, reverbMix: 0.05, reverbDecay: 1.2 },
-    Vocal: { preampDb: 0, eq: [-3, -2, -1, 1, 3, 4, 3, 1.5, 0, -1], bassDb: 0, reverbMix: 0.12, reverbDecay: 1.0 },
-    Live: { preampDb: -1, eq: [2.5, 2, 1, 0, -1.5, 0, 1, 2, 2, 2], bassDb: 3, reverbMix: 0.3, reverbDecay: 1.7 },
-    Hall: { preampDb: -2, eq: [1.5, 1, 0, -1, -1, 0, 1, 1, 0, 0.5], bassDb: 2, reverbMix: 0.45, reverbDecay: 3.2 }
+    Flat: {
+      preampDb: 0, eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], bassDb: 0,
+      airDb: 0, width: 1, punch: 0, warmth: 0,
+      reverbMix: 0, reverbDecay: 1.8, echoMix: 0
+    },
+    Bass: {
+      preampDb: -2, eq: [6, 5.5, 3, 1, 0, -1, -1, 0.5, 1, 1], bassDb: 8,
+      airDb: 0, width: 1.05, punch: 0.1, warmth: 0.08,
+      reverbMix: 0.05, reverbDecay: 1.2, echoMix: 0
+    },
+    Vocal: {
+      preampDb: 0, eq: [-3, -2, -1, 1, 3, 4, 3, 1.5, 0, -1], bassDb: 0,
+      airDb: 2, width: 1.05, punch: 0.2, warmth: 0.12,
+      reverbMix: 0.12, reverbDecay: 1.0, echoMix: 0.04
+    },
+    Live: {
+      preampDb: -1, eq: [2.5, 2, 1, 0, -1.5, 0, 1, 2, 2, 2], bassDb: 3,
+      airDb: 1, width: 1.35, punch: 0.15, warmth: 0.1,
+      reverbMix: 0.3, reverbDecay: 1.7, echoMix: 0.12
+    },
+    Hall: {
+      preampDb: -2, eq: [1.5, 1, 0, -1, -1, 0, 1, 1, 0, 0.5], bassDb: 2,
+      airDb: 0, width: 1.5, punch: 0, warmth: 0.05,
+      reverbMix: 0.45, reverbDecay: 3.2, echoMix: 0.15
+    },
+    Warm: {
+      preampDb: -1, eq: [3, 2, 1, 0, 0, 0, -1, -1, -2, -2], bassDb: 5,
+      airDb: -3, width: 1.1, punch: 0.15, warmth: 0.55,
+      reverbMix: 0.12, reverbDecay: 1.5, echoMix: 0.08
+    },
+    Night: {
+      preampDb: -3, eq: [-2, -1, 0, 1, 1, 0, 0, -2, -3, -3], bassDb: 2,
+      airDb: -4, width: 0.9, punch: 0.6, warmth: 0.1,
+      reverbMix: 0.08, reverbDecay: 1.2, echoMix: 0
+    }
   };
 
   var els = {};
@@ -31,7 +73,6 @@
   var bandOuts = [];
   var bandMeters = [];
   var bandWraps = [];
-  var bandLive = [];
   var saveTimer = null;
   var storageBroken = false;
 
@@ -45,16 +86,15 @@
     ctx: null,
     w: 0,
     h: 0,
+    dpr: 0,
     timer: null,
     busy: false,
     fails: 0,
     reduced: false
   };
   var smoothBars = new Array(BARS);
-  var smoothBands = new Array(BANDS.length);
   var i;
   for (i = 0; i < BARS; i++) smoothBars[i] = 0;
-  for (i = 0; i < smoothBands.length; i++) smoothBands[i] = 0;
 
   // ---------------------------------------------------------------------------
   // helpers
@@ -97,17 +137,22 @@
     band.classList.toggle('is-flat', v === 0);
   }
 
-  function paintRange(el, pct) {
+  function paintRange(el) {
     if (!el) return;
-    var clamped = Math.max(0, Math.min(100, pct));
-    el.style.setProperty('--p', clamped + '%');
+    var min = parseFloat(el.min);
+    var max = parseFloat(el.max);
+    var value = parseFloat(el.value);
+    if (!isFinite(min)) min = 0;
+    if (!isFinite(max)) max = 100;
+    if (!isFinite(value)) value = min;
+    var pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
+    el.style.setProperty('--p', Math.max(0, Math.min(100, pct)) + '%');
   }
 
   function paintRanges() {
-    paintRange(els.preamp, ((parseFloat(els.preamp.value) || 0) + 12) / 24 * 100);
-    paintRange(els.bass, (parseFloat(els.bass.value) || 0) / 15 * 100);
-    paintRange(els.mix, parseFloat(els.mix.value) || 0);
-    paintRange(els.decay, ((parseFloat(els.decay.value) || 1.8) - 0.3) / 3.7 * 100);
+    ['preamp', 'bass', 'air', 'width', 'punch', 'warmth', 'mix', 'decay', 'echo'].forEach(function (key) {
+      paintRange(els[key]);
+    });
 
     for (var b = 0; b < bandInputs.length; b++) {
       paintBand(b, parseFloat(bandInputs[b].value) || 0);
@@ -130,8 +175,13 @@
       var p = PRESETS[name];
       if (Math.abs(p.preampDb - cfg.preampDb) > EPS) continue;
       if (Math.abs(p.bassDb - cfg.bassDb) > EPS) continue;
+      if (Math.abs(p.airDb - cfg.airDb) > EPS) continue;
+      if (Math.abs(p.width - cfg.width) > EPS) continue;
+      if (Math.abs(p.punch - cfg.punch) > EPS) continue;
+      if (Math.abs(p.warmth - cfg.warmth) > EPS) continue;
       if (Math.abs(p.reverbMix - cfg.reverbMix) > EPS) continue;
       if (Math.abs(p.reverbDecay - cfg.reverbDecay) > EPS) continue;
+      if (Math.abs(p.echoMix - cfg.echoMix) > EPS) continue;
 
       var sameEq = true;
       for (var e = 0; e < p.eq.length; e++) {
@@ -182,14 +232,17 @@
   // ---------------------------------------------------------------------------
 
   function fitViz() {
-    if (!viz.canvas) return;
+    if (!viz.canvas || !els.eqStage) return;
     var dpr = window.devicePixelRatio || 1;
-    viz.w = Math.max(1, window.innerWidth);
-    viz.h = Math.max(1, window.innerHeight);
-    viz.canvas.width = Math.round(viz.w * dpr);
-    viz.canvas.height = Math.round(viz.h * dpr);
-    viz.canvas.style.width = viz.w + 'px';
-    viz.canvas.style.height = viz.h + 'px';
+    var w = Math.max(1, els.eqStage.clientWidth);
+    var h = Math.max(1, els.eqStage.clientHeight);
+    if (w === viz.w && h === viz.h && dpr === viz.dpr && viz.ctx) return;
+
+    viz.w = w;
+    viz.h = h;
+    viz.dpr = dpr;
+    viz.canvas.width = Math.round(w * dpr);
+    viz.canvas.height = Math.round(h * dpr);
     viz.ctx = viz.canvas.getContext('2d');
     if (viz.ctx) viz.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
@@ -203,37 +256,37 @@
     ctx.clearRect(0, 0, w, h);
 
     var gap = 2;
-    var barWidth = (w - gap * (BARS - 1)) / BARS;
-    var gradient = ctx.createLinearGradient(0, h, 0, h * 0.18);
-    gradient.addColorStop(0, 'rgba(255, 45, 45, 0.55)');
-    gradient.addColorStop(0.55, 'rgba(255, 80, 80, 0.22)');
+    var barWidth = Math.max(1, (w - gap * (BARS - 1)) / BARS);
+    var gradient = ctx.createLinearGradient(0, h, 0, h * 0.12);
+    gradient.addColorStop(0, 'rgba(255, 45, 45, 0.42)');
+    gradient.addColorStop(0.6, 'rgba(255, 74, 74, 0.16)');
     gradient.addColorStop(1, 'rgba(255, 120, 120, 0)');
     ctx.fillStyle = gradient;
 
     for (var b = 0; b < BARS; b++) {
       var v = smoothBars[b];
-      if (v <= 0.001) continue;
-      var bh = Math.max(1, Math.pow(v, 0.8) * h * 0.92);
-      ctx.fillRect(b * (barWidth + gap), h - bh, barWidth, bh);
+      if (v <= 0.004) continue;
+
+      var bh = Math.max(2, Math.pow(v, 1.15) * h * 0.86);
+      var x = b * (barWidth + gap);
+      var y = h - bh;
+      var r = Math.min(barWidth / 2, 3);
+
+      if (ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(x, y, barWidth, bh, [r, r, 0, 0]);
+        ctx.fill();
+      } else {
+        ctx.fillRect(x, y, barWidth, bh);
+      }
     }
   }
 
   function renderFrame(res) {
-    var b;
-    for (b = 0; b < BARS; b++) {
+    for (var b = 0; b < BARS; b++) {
       var rawBar = res.bars && typeof res.bars[b] === 'number' ? res.bars[b] : 0;
-      var target = Math.min(1, Math.pow(rawBar, 0.7) * 1.15);
-      smoothBars[b] += (target - smoothBars[b]) * 0.45;
-    }
-
-    for (b = 0; b < bandLive.length; b++) {
-      var rawBand = res.bands && typeof res.bands[b] === 'number' ? res.bands[b] : 0;
-      var bandTarget = Math.min(1, Math.pow(rawBand, 0.7) * 1.35);
-      smoothBands[b] += (bandTarget - smoothBands[b]) * 0.45;
-      if (bandLive[b]) {
-        bandLive[b].style.transform =
-          'translateX(-50%) scaleY(' + smoothBands[b].toFixed(3) + ')';
-      }
+      var target = Math.min(1, Math.pow(rawBar, 0.72) * 1.12);
+      smoothBars[b] += (target - smoothBars[b]) * 0.32;
     }
 
     drawSpectrum();
@@ -312,10 +365,6 @@
       var meter = document.createElement('span');
       meter.className = 'fader-meter';
 
-      var live = document.createElement('span');
-      live.className = 'fader-live';
-      live.setAttribute('aria-hidden', 'true');
-
       var input = document.createElement('input');
       input.type = 'range';
       input.className = 'vert';
@@ -329,7 +378,6 @@
 
       fader.appendChild(rail);
       fader.appendChild(zero);
-      fader.appendChild(live);
       fader.appendChild(meter);
       fader.appendChild(input);
 
@@ -346,7 +394,6 @@
       bandOuts.push(out);
       bandMeters.push(meter);
       bandWraps.push(band);
-      bandLive.push(live);
 
       input.addEventListener('input', function () {
         out.textContent = fmtBand(parseFloat(input.value) || 0);
@@ -371,8 +418,13 @@
       preampDb: parseFloat(els.preamp.value),
       eq: eq,
       bassDb: parseFloat(els.bass.value),
+      airDb: parseFloat(els.air.value),
+      width: (parseFloat(els.width.value) || 0) / 100,
+      punch: (parseFloat(els.punch.value) || 0) / 100,
+      warmth: (parseFloat(els.warmth.value) || 0) / 100,
       reverbMix: (parseFloat(els.mix.value) || 0) / 100,
-      reverbDecay: parseFloat(els.decay.value)
+      reverbDecay: parseFloat(els.decay.value),
+      echoMix: (parseFloat(els.echo.value) || 0) / 100
     });
   }
 
@@ -381,8 +433,13 @@
     els.enabled.checked = c.enabled;
     els.preamp.value = String(c.preampDb);
     els.bass.value = String(c.bassDb);
+    els.air.value = String(c.airDb);
+    els.width.value = String(Math.round(c.width * 100));
+    els.punch.value = String(Math.round(c.punch * 100));
+    els.warmth.value = String(Math.round(c.warmth * 100));
     els.mix.value = String(Math.round(c.reverbMix * 100));
     els.decay.value = String(c.reverbDecay);
+    els.echo.value = String(Math.round(c.echoMix * 100));
 
     for (var b = 0; b < bandInputs.length; b++) {
       bandInputs[b].value = String(c.eq[b]);
@@ -396,8 +453,13 @@
   function updateLabels() {
     els.preampOut.textContent = fmtDb(parseFloat(els.preamp.value) || 0);
     els.bassOut.textContent = fmtDb(parseFloat(els.bass.value) || 0);
+    els.airOut.textContent = fmtDb(parseFloat(els.air.value) || 0);
+    els.widthOut.textContent = Math.round(parseFloat(els.width.value) || 0) + ' %';
+    els.punchOut.textContent = Math.round(parseFloat(els.punch.value) || 0) + ' %';
+    els.warmthOut.textContent = Math.round(parseFloat(els.warmth.value) || 0) + ' %';
     els.mixOut.textContent = Math.round(parseFloat(els.mix.value) || 0) + ' %';
     els.decayOut.textContent = (Math.round((parseFloat(els.decay.value) || 0) * 10) / 10).toFixed(1) + ' s';
+    els.echoOut.textContent = Math.round(parseFloat(els.echo.value) || 0) + ' %';
     els.controls.classList.toggle('off', !els.enabled.checked);
     paintRanges();
   }
@@ -480,8 +542,13 @@
       preampDb: p.preampDb,
       eq: p.eq.slice(),
       bassDb: p.bassDb,
+      airDb: p.airDb,
+      width: p.width,
+      punch: p.punch,
+      warmth: p.warmth,
       reverbMix: p.reverbMix,
-      reverbDecay: p.reverbDecay
+      reverbDecay: p.reverbDecay,
+      echoMix: p.echoMix
     };
     render(cfg);
     saveNow();
@@ -652,15 +719,26 @@
     els.noteText = document.getElementById('noteText');
     els.noteAction = document.getElementById('noteAction');
     els.controls = document.getElementById('controls');
+    els.eqStage = document.querySelector('.eq-stage');
     els.eqBands = document.getElementById('eqBands');
     els.preamp = document.getElementById('preamp');
     els.preampOut = document.getElementById('preampOut');
     els.bass = document.getElementById('bass');
     els.bassOut = document.getElementById('bassOut');
+    els.air = document.getElementById('air');
+    els.airOut = document.getElementById('airOut');
+    els.width = document.getElementById('width');
+    els.widthOut = document.getElementById('widthOut');
+    els.punch = document.getElementById('punch');
+    els.punchOut = document.getElementById('punchOut');
+    els.warmth = document.getElementById('warmth');
+    els.warmthOut = document.getElementById('warmthOut');
     els.mix = document.getElementById('mix');
     els.mixOut = document.getElementById('mixOut');
     els.decay = document.getElementById('decay');
     els.decayOut = document.getElementById('decayOut');
+    els.echo = document.getElementById('echo');
+    els.echoOut = document.getElementById('echoOut');
     els.reset = document.getElementById('reset');
     els.vizCanvas = document.getElementById('viz');
     els.profMain = document.getElementById('profMain');
@@ -685,8 +763,14 @@
       fitViz();
       drawSpectrum();
     });
+    if (typeof ResizeObserver === 'function' && els.eqStage) {
+      new ResizeObserver(function () {
+        fitViz();
+        drawSpectrum();
+      }).observe(els.eqStage);
+    }
 
-    ['preamp', 'bass', 'mix', 'decay'].forEach(function (key) {
+    ['preamp', 'bass', 'air', 'width', 'punch', 'warmth', 'mix', 'decay', 'echo'].forEach(function (key) {
       els[key].addEventListener('input', onUserChange);
     });
 
