@@ -125,8 +125,8 @@ docs/popup.png  screenshot used above
 ## Verified
 
 * `node --check` on every script; manifest parses; every referenced asset exists.
-* The whole graph was unit-tested against a stubbed Web Audio API (42 assertions:
-  wiring, gains, IR generation, bypass neutrality, single-source reuse).
+* The whole graph was unit-tested against a stubbed Web Audio API (wiring,
+  gains, IR generation, bypass neutrality, single-source reuse).
 * Loaded unpacked in Chromium 156 against real YouTube Music: chain attached,
   `AudioContext` running, post-limiter RMS **0.030 → 0.064** on playback, and a
   config written to storage changed the applied filters and the output level.
