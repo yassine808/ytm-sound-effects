@@ -1,13 +1,21 @@
 # YTM Sound Effects
 
-A Manifest V3 extension for **Brave** (and other Chromium browsers) that puts a
-real audio chain on top of **YouTube Music**: a 10-band equalizer, bass and air
-shelves, punch compression, warmth saturation, stereo width, reverb and echo —
-all live while the track plays, with a spectrum that stays inside the EQ card,
-saved profiles, remembered shuffle, playback controls with a smooth click-to-seek
-progress bar, and ads silenced.
+[![Manifest V3](https://img.shields.io/badge/manifest-v3-ff2d44?style=flat-square)](manifest.json)
+[![Brave / Chromium](https://img.shields.io/badge/brave%20%2F%20chromium-supported-ff2d44?style=flat-square)](https://brave.com)
+[![License: MIT](https://img.shields.io/badge/license-MIT-ff2d44?style=flat-square)](LICENSE)
 
-![Popup](docs/popup.png)
+**A real-time studio chain for YouTube Music.** A Manifest V3 extension for
+Brave (and other Chromium browsers) that puts a 10-band equalizer, bass and air
+shelves, punch compression, warmth saturation, stereo width, reverb and echo on
+top of the track — live while it plays. It also adds saved profiles, remembered
+shuffle, playback controls with click/drag seeking, a spectrum and response
+curve inside the EQ card, and ad silencing.
+
+## Screenshots
+
+| Main popup | Bass preset | No YouTube Music tab |
+| :---: | :---: | :---: |
+| ![Main popup](docs/popup.png) | ![Bass preset](docs/popup-bass.png) | ![No-tab state](docs/popup-no-tab.png) |
 
 ## Features
 
@@ -230,7 +238,7 @@ popup-polish.js visual layer only: slider fills, ripples, animated EQ curve
 popup.js        sliders, presets, profiles, transport + smooth progress,
                 EQ-only spectrum, persistence
 icons/          16 / 48 / 128 px (official YouTube Music icon)
-docs/popup.png  screenshot used above
+docs/           popup screenshots used in the README
 ```
 
 ## Verified
@@ -288,4 +296,5 @@ Not verified: how it sounds on your speakers. That needs your ears.
 
 ## License
 
-MIT
+MIT © 2026 [Magri Mohammed Yassine](https://github.com/yassine808). See
+[LICENSE](LICENSE) for the full text.
