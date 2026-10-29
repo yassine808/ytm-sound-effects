@@ -355,8 +355,21 @@
   /* The popup drives playback by clicking YouTube Music's own controls, so the
      page keeps its keyboard shortcuts, queue and play history in sync. */
 
-  function playerCommand(cmd) {
+  function playerCommand(cmd, value) {
     try {
+      if (cmd === 'seek') {
+        var targetVideo = findVideo() || videoEl;
+        if (!targetVideo) return { ok: false, reason: 'no player' };
+        var duration = Number(targetVideo.duration);
+        var target = Number(value);
+        if (!isFinite(duration) || duration <= 0 || !isFinite(target)) {
+          return { ok: false, reason: 'no seekable track' };
+        }
+        target = Math.max(0, Math.min(duration, target));
+        targetVideo.currentTime = target;
+        return { ok: true, action: 'seek', currentTime: targetVideo.currentTime };
+      }
+
       if (cmd === 'playpause') {
         var toggle = barButton(['Pause', 'Play']);
         if (toggle) {
@@ -967,7 +980,7 @@
       }
 
       if (message.type === 'YTMSE_CMD') {
-        sendResponse(playerCommand(message.cmd));
+        sendResponse(playerCommand(message.cmd, message.value));
         return false;
       }
 

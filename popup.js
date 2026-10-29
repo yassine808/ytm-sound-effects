@@ -245,6 +245,8 @@
     shown: 0,
     shuffle: null,
     holdUntil: 0,
+    seekUntil: 0,
+    dragging: false,
     raf: null,
     lastCur: '',
     lastDur: ''
@@ -284,7 +286,14 @@
 
     if (els.progressFill) els.progressFill.style.width = (pct * 100).toFixed(3) + '%';
     if (els.progressHead) els.progressHead.style.left = (pct * 100).toFixed(3) + '%';
-    if (els.progress) els.progress.setAttribute('aria-valuenow', String(Math.round(pct * 100)));
+    if (els.progress) {
+      els.progress.setAttribute('aria-valuemax', String(Math.round(transport.duration)));
+      els.progress.setAttribute('aria-valuenow', String(Math.round(seconds)));
+      els.progress.setAttribute(
+        'aria-valuetext',
+        fmtTime(seconds) + ' of ' + fmtTime(transport.duration)
+      );
+    }
 
     var cur = fmtTime(transport.duration > 0 ? seconds : 0);
     if (cur !== transport.lastCur) {
@@ -309,12 +318,27 @@
     if (!isFinite(current) || current < 0) current = 0;
 
     var now = performance.now();
+    var previousDuration = transport.duration;
+    transport.duration = duration;
+
+    // While dragging, the pointer owns the position. For a moment after a
+    // click, ignore stale frames so the bar does not jump back before the
+    // player reports the new time.
+    if (transport.dragging) return;
+    if (now < transport.seekUntil) {
+      if (transport.shown > duration) transport.shown = duration;
+      if (now >= transport.holdUntil) {
+        applyPlayState(frame.paused === true);
+        if (typeof frame.shuffle === 'boolean') applyShuffle(frame.shuffle);
+      }
+      return;
+    }
+
     var expected = transport.baseTime +
       (transport.paused ? 0 : (now - transport.baseAt) / 1000);
     var jumped = Math.abs(current - expected) > 1.5 ||
-      Math.abs(duration - transport.duration) > 0.75;
+      Math.abs(duration - previousDuration) > 0.75;
 
-    transport.duration = duration;
     transport.baseTime = current;
     transport.baseAt = now;
     if (jumped) transport.shown = current;
@@ -330,6 +354,8 @@
 
   function progressTick(now) {
     transport.raf = window.requestAnimationFrame(progressTick);
+
+    if (transport.dragging) return;
 
     var duration = transport.duration;
     if (!(duration > 0)) {
@@ -366,19 +392,58 @@
     [els.prevBtn, els.playBtn, els.nextBtn, els.shuffleBtn].forEach(function (button) {
       if (button) button.disabled = !transport.enabled;
     });
+    if (els.progress) {
+      els.progress.setAttribute('aria-disabled', transport.enabled ? 'false' : 'true');
+      els.progress.tabIndex = transport.enabled ? 0 : -1;
+    }
     if (els.player) els.player.classList.toggle('is-disabled', !transport.enabled);
   }
 
-  function sendCommand(cmd) {
+  function sendCommand(cmd, value) {
     if (!transport.tabId || !transport.enabled) return;
+    var message = { type: 'YTMSE_CMD', cmd: cmd };
+    if (typeof value === 'number' && isFinite(value)) message.value = value;
     try {
-      chrome.tabs.sendMessage(transport.tabId, { type: 'YTMSE_CMD', cmd: cmd }, function () {
+      chrome.tabs.sendMessage(transport.tabId, message, function () {
         // Read lastError so a closed tab does not log a noisy exception.
         if (chrome.runtime && chrome.runtime.lastError) return;
       });
     } catch (e) {
       /* the next frame poll will disable the controls if the tab is gone */
     }
+  }
+
+  function seekFraction(clientX) {
+    var rail = els.progressRail || els.progress;
+    if (!rail || !isFinite(clientX)) return 0;
+    var rect = rail.getBoundingClientRect();
+    if (!rect.width) return 0;
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  }
+
+  function previewSeek(fraction) {
+    if (!(transport.duration > 0)) return;
+    transport.shown = Math.max(0, Math.min(1, fraction)) * transport.duration;
+    showProgress(transport.shown);
+  }
+
+  function commitSeek() {
+    if (!transport.enabled || !(transport.duration > 0)) return;
+    var now = performance.now();
+    var target = Math.max(0, Math.min(transport.duration, transport.shown));
+    transport.shown = target;
+    transport.baseTime = target;
+    transport.baseAt = now;
+    transport.seekUntil = now + 900;
+    transport.holdUntil = now + 700;
+    showProgress(target);
+    sendCommand('seek', target);
+  }
+
+  function seekBy(seconds) {
+    if (!transport.enabled || !(transport.duration > 0)) return;
+    transport.shown = Math.max(0, Math.min(transport.duration, transport.shown + seconds));
+    commitSeek();
   }
 
   // ---------------------------------------------------------------------------
@@ -942,6 +1007,7 @@
     els.nextBtn = document.getElementById('nextBtn');
     els.shuffleBtn = document.getElementById('shuffleBtn');
     els.progress = document.getElementById('progress');
+    els.progressRail = els.progress ? els.progress.querySelector('.progress-rail') : null;
     els.progressFill = document.getElementById('progressFill');
     els.progressHead = document.getElementById('progressHead');
     els.curTime = document.getElementById('curTime');
@@ -1009,6 +1075,79 @@
       applyShuffle(transport.shuffle !== true);
       sendCommand('shuffle');
     });
+
+    if (els.progress) {
+      var finishSeek = function (event, commit) {
+        if (!transport.dragging) return;
+        transport.dragging = false;
+        els.progress.classList.remove('is-seeking');
+        if (els.progress.hasPointerCapture && event.pointerId != null) {
+          try {
+            if (els.progress.hasPointerCapture(event.pointerId)) {
+              els.progress.releasePointerCapture(event.pointerId);
+            }
+          } catch (e) {
+            /* ignore */
+          }
+        }
+        if (commit) {
+          previewSeek(seekFraction(event.clientX));
+          commitSeek();
+        } else {
+          transport.baseTime = transport.shown;
+          transport.baseAt = performance.now();
+        }
+      };
+
+      els.progress.addEventListener('pointerdown', function (event) {
+        if (!transport.enabled || !(transport.duration > 0)) return;
+        if (event.button !== undefined && event.button !== 0) return;
+        event.preventDefault();
+        transport.dragging = true;
+        els.progress.classList.add('is-seeking');
+        if (els.progress.setPointerCapture) {
+          try {
+            els.progress.setPointerCapture(event.pointerId);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+        previewSeek(seekFraction(event.clientX));
+      });
+
+      els.progress.addEventListener('pointermove', function (event) {
+        if (!transport.dragging) return;
+        previewSeek(seekFraction(event.clientX));
+      });
+
+      els.progress.addEventListener('pointerup', function (event) {
+        finishSeek(event, true);
+      });
+
+      els.progress.addEventListener('pointercancel', function (event) {
+        finishSeek(event, false);
+      });
+
+      els.progress.addEventListener('keydown', function (event) {
+        if (!transport.enabled || !(transport.duration > 0)) return;
+        var step = event.shiftKey ? 30 : 5;
+        if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          seekBy(step);
+        } else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+          event.preventDefault();
+          seekBy(-step);
+        } else if (event.key === 'Home') {
+          event.preventDefault();
+          transport.shown = 0;
+          commitSeek();
+        } else if (event.key === 'End') {
+          event.preventDefault();
+          transport.shown = transport.duration;
+          commitSeek();
+        }
+      });
+    }
 
     var chips = document.querySelectorAll('.chip[data-preset]');
     for (var c = 0; c < chips.length; c++) {

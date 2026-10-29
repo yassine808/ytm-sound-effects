@@ -52,7 +52,7 @@
           </button>
           <span class="time" aria-hidden="true"><span id="curTime">0:00</span><span class="time-sep">/</span><span id="durTime">0:00</span></span>
         </div>
-        <div class="progress" id="progress" role="progressbar" aria-label="Track progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="progress" id="progress" role="slider" tabindex="0" aria-label="Track progress" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0:00 of 0:00">
           <span class="progress-rail">
             <span class="progress-fill" id="progressFill"><span class="progress-shine" aria-hidden="true"></span></span>
             <span class="progress-head" id="progressHead" aria-hidden="true"></span>
@@ -188,7 +188,7 @@
 
     <footer class="foot">
       <button id="reset" type="button" class="ghost">Reset all</button>
-      <span class="version">v0.5.1</span>
+      <span class="version">v0.5.2</span>
     </footer>
 
     <script src="audio.js"></script>

@@ -399,6 +399,33 @@ main {
   position: relative;
   z-index: 1;
   margin-top: 6px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+/* Larger invisible hit target without changing the 380x588 layout. */
+.progress::before {
+  content: "";
+  position: absolute;
+  inset: -6px 0;
+}
+
+.progress:focus-visible {
+  outline: 2px solid rgba(255, 59, 59, 0.6);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.progress.is-seeking {
+  cursor: grabbing;
+}
+
+.progress.is-seeking .progress-head {
+  transform: translate(-50%, -50%) scale(1.4);
+}
+
+.player.is-disabled .progress {
+  cursor: default;
 }
 
 .progress-rail {

@@ -4,8 +4,8 @@ A Manifest V3 extension for **Brave** (and other Chromium browsers) that puts a
 real audio chain on top of **YouTube Music**: a 10-band equalizer, bass and air
 shelves, punch compression, warmth saturation, stereo width, reverb and echo —
 all live while the track plays, with a spectrum that stays inside the EQ card,
-saved profiles, remembered shuffle, playback controls with a smooth progress bar,
-and ads silenced.
+saved profiles, remembered shuffle, playback controls with a smooth click-to-seek
+progress bar, and ads silenced.
 
 ![Popup](docs/popup.png)
 
@@ -27,7 +27,7 @@ and ads silenced.
 | **Live visuals** | A spectrum graph behind the EQ faders only — never behind the rest of the popup (frozen when reduced motion is requested) |
 | **Profiles** | Save the current settings under a name, switch between them instantly, delete with a two-click confirmation |
 | **Transport** | Previous, play/pause, next and shuffle, driving YouTube Music's own player-bar buttons so the queue and history stay in sync |
-| **Progress** | A glowing progress bar with a soft shimmer, interpolated every screen frame so it glides between telemetry frames, with elapsed and total time |
+| **Progress** | A glowing progress bar with a soft shimmer, interpolated every screen frame so it glides between telemetry frames, with elapsed and total time. Click or drag anywhere on it to seek; arrow keys move 5 s (Shift: 30 s), Home/End jump to the start/end |
 | **Shuffle memory** | YouTube Music forgets shuffle on reload; the extension restores your last explicit choice on every new page |
 | **Ad silence** | Ads are detected in the player and muted through the chain, then unmuted when the music returns. The site's own volume is never touched |
 | **Persistence** | Settings, profiles and the shuffle preference live in `chrome.storage.local` and apply to every open tab immediately |
@@ -85,7 +85,9 @@ A few details that matter:
   carries `currentTime`, `duration`, `paused` and `shuffle`; the popup
   extrapolates the progress with `requestAnimationFrame` and eases small
   corrections, which keeps the bar smooth between the ~18 Hz frames. A seek or
-  a new track snaps rather than sweeping.
+  a new track snaps rather than sweeping. Clicking or dragging the bar previews
+  the position immediately, commits it on release through the `seek` command,
+  and ignores stale frames for 900 ms so the bar cannot jump back.
 * **Shuffle state is read from the player-bar icon.** The player-bar button has
   no ARIA state: ON is white (`255,255,255`) and OFF is grey (`144,144,144`).
   Some newer player buttons elsewhere do expose `aria-pressed`, so the keeper
@@ -210,7 +212,8 @@ until shuffle has been clicked once).
 `__ytmse.frame()` returns the current spectrum (`bars`, `bands`, `level`) plus
 the transport snapshot (`currentTime`, `duration`, `paused`, `shuffle`) that
 drives the progress bar and icons. `__ytmse.command('playpause' | 'prev' |
-'next' | 'shuffle')` clicks the matching player-bar control, and
+'next' | 'shuffle')` clicks the matching player-bar control,
+`__ytmse.command('seek', seconds)` sets the track position, and
 `__ytmse.rescan()` forces a fresh look for the player element.
 
 ## Project layout
@@ -264,6 +267,9 @@ docs/popup.png  screenshot used above
   player-bar buttons received the clicks. The popup test measured the progress
   fill moving **117.6 → 118.2 px over 350 ms** while the labels advanced
   **1:15 → 1:16**, and clicked all four controls through the popup itself.
+* Seeking, live: a real click at 50 % of the popup bar moved the actual video to
+  **123.35 s / 243.26 s** (ratio **0.507**), and `ArrowRight` nudged it forward
+  5 s. The bar exposes `role="slider"` with time-based ARIA values.
 * Popup layout after the transport was added: still **380×588 px** in both the
   YouTube Music and no-tab states (Chromium limit 600), with no scrollbar. The
   transport group measures dead-centre (`group offset 0 px`), with the elapsed /
