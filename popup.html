@@ -148,12 +148,15 @@ main#controls.is-off, body.is-off main#controls { opacity: 0.4; filter: saturate
 /* ---------- Player ---------- */
 .player { padding: 10px 14px 8px; }
 .transport { display: flex; align-items: center; gap: 4px; }
+/* Equal spacer + time column keep the transport group centred in the card. */
+.transport::before { content: ""; flex: 1 1 0; }
 .tbtn {
   display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%;
   color: var(--muted);
   transition: color 0.2s, background 0.2s, transform 0.25s var(--ease);
 }
 .tbtn svg { width: 18px; height: 18px; fill: currentColor; position: relative; }
+.tbtn svg.ic-line { fill: none; }
 .tbtn:not(:disabled):hover { color: var(--text); background: rgba(255, 255, 255, 0.08); }
 .tbtn:not(:disabled):active { transform: scale(0.9); }
 
@@ -179,12 +182,12 @@ main#controls.is-off, body.is-off main#controls { opacity: 0.4; filter: saturate
 .tbtn-toggle[aria-pressed="true"]::after { transform: scale(1); }
 
 .time {
-  margin-left: auto; display: inline-flex; gap: 4px;
+  flex: 1 1 0; margin-left: 0; justify-content: flex-end; display: inline-flex; gap: 4px;
   font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--muted);
 }
 .time-sep { color: var(--dim); }
 
-.progress { margin-top: 6px; padding: 6px 0; cursor: pointer; }
+.progress { margin-top: 6px; padding: 6px 0; cursor: pointer; touch-action: none; user-select: none; }
 .progress-rail {
   position: relative; display: block; height: 4px; border-radius: 999px;
   background: rgba(255, 255, 255, 0.1); transition: height 0.2s var(--ease);
@@ -364,28 +367,32 @@ body.has-note .foot { display: none; }</style>
         <h2 id="playerLabel" class="sr">Playback</h2>
         <div class="transport">
           <button type="button" id="prevBtn" class="tbtn" aria-label="Previous track" title="Previous" disabled>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h2.4v12H6zM18 6l-9 6 9 6z" /></svg>
+            <svg class="ic-line" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 6.6 9.8 12 19 17.4V6.6Z" />
+              <path d="M5.2 6v12" />
+            </svg>
           </button>
           <button type="button" id="playBtn" class="tbtn tbtn-play" aria-label="Play" title="Play" disabled>
-            <svg class="ic-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19 12z" /></svg>
-            <svg class="ic-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" /></svg>
+            <svg class="ic-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5.6c0-.9 1-1.4 1.7-.9l8.7 6.4c.6.4.6 1.4 0 1.8l-8.7 6.4c-.7.5-1.7 0-1.7-.9V5.6Z" /></svg>
+            <svg class="ic-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="5" width="3.6" height="14" rx="1.8" /><rect x="13.4" y="5" width="3.6" height="14" rx="1.8" /></svg>
           </button>
           <button type="button" id="nextBtn" class="tbtn" aria-label="Next track" title="Next" disabled>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.6 6H18v12h-2.4zM6 6l9 6-9 6z" /></svg>
+            <svg class="ic-line" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 6.6 14.2 12 5 17.4V6.6Z" />
+              <path d="M18.8 6v12" />
+            </svg>
           </button>
           <button type="button" id="shuffleBtn" class="tbtn tbtn-toggle" aria-label="Shuffle" aria-pressed="false" title="Shuffle" disabled>
-            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M17 3h4v4" />
-              <path d="M21 3l-6.2 6.2" />
-              <path d="M3 7h3.2c1.9 0 3.1 1 4.3 2.6l3 4.8c1.2 1.6 2.4 2.6 4.3 2.6H21" />
-              <path d="M17 21h4v-4" />
-              <path d="M21 21l-6.2-6.2" />
-              <path d="M3 17h3.2c1.9 0 3.1-1 4.3-2.6l.6-.9" />
+            <svg class="ic-line" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 7h3.5c4.5 0 6.5 10 11 10H21" />
+              <path d="m18 14 3 3-3 3" />
+              <path d="M3 17h3.5c1.5 0 2.7-.9 3.8-2.4L14.8 7H21" />
+              <path d="m18 4 3 3-3 3" />
             </svg>
           </button>
           <span class="time" aria-hidden="true"><span id="curTime">0:00</span><span class="time-sep">/</span><span id="durTime">0:00</span></span>
         </div>
-        <div class="progress" id="progress" role="progressbar" aria-label="Track progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="progress" id="progress" role="slider" aria-label="Track progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
           <span class="progress-rail">
             <span class="progress-fill" id="progressFill"><span class="progress-shine" aria-hidden="true"></span></span>
             <span class="progress-head" id="progressHead" aria-hidden="true"></span>
@@ -521,7 +528,7 @@ body.has-note .foot { display: none; }</style>
 
     <footer class="foot">
       <button id="reset" type="button" class="ghost">Reset all</button>
-      <span class="version">v0.6.0</span>
+      <span class="version">v0.6.1</span>
     </footer>
 
     

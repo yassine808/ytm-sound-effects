@@ -246,6 +246,7 @@
     shuffle: null,
     holdUntil: 0,
     seekUntil: 0,
+    lastSeekAt: 0,
     dragging: false,
     raf: null,
     lastCur: '',
@@ -421,10 +422,21 @@
     return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
   }
 
-  function previewSeek(fraction) {
+  function previewSeek(fraction, live) {
     if (!(transport.duration > 0)) return;
     transport.shown = Math.max(0, Math.min(1, fraction)) * transport.duration;
     showProgress(transport.shown);
+
+    // Keep the music following the finger while dragging, not only on release.
+    if (live && transport.enabled) {
+      var now = performance.now();
+      if (now - transport.lastSeekAt >= 120) {
+        transport.lastSeekAt = now;
+        transport.baseTime = transport.shown;
+        transport.baseAt = now;
+        sendCommand('seek', transport.shown);
+      }
+    }
   }
 
   function commitSeek() {
@@ -436,6 +448,7 @@
     transport.baseAt = now;
     transport.seekUntil = now + 900;
     transport.holdUntil = now + 700;
+    transport.lastSeekAt = now;
     showProgress(target);
     sendCommand('seek', target);
   }
@@ -1081,7 +1094,13 @@
           }
         }
         if (commit) {
-          previewSeek(seekFraction(event.clientX));
+          // Only retarget when the pointer is still over the rail. Releasing
+          // outside commits the last preview instead of jumping to 0 or 100%.
+          var rail = els.progressRail || els.progress;
+          var rect = rail.getBoundingClientRect();
+          var inside = isFinite(event.clientX) &&
+            event.clientX >= rect.left - 1 && event.clientX <= rect.right + 1;
+          if (inside) previewSeek(seekFraction(event.clientX));
           commitSeek();
         } else {
           transport.baseTime = transport.shown;
@@ -1094,6 +1113,7 @@
         if (event.button !== undefined && event.button !== 0) return;
         event.preventDefault();
         transport.dragging = true;
+        transport.lastSeekAt = 0;
         els.progress.classList.add('is-seeking');
         if (els.progress.setPointerCapture) {
           try {
@@ -1107,7 +1127,7 @@
 
       els.progress.addEventListener('pointermove', function (event) {
         if (!transport.dragging) return;
-        previewSeek(seekFraction(event.clientX));
+        previewSeek(seekFraction(event.clientX), true);
       });
 
       els.progress.addEventListener('pointerup', function (event) {
@@ -1117,6 +1137,16 @@
       els.progress.addEventListener('pointercancel', function (event) {
         finishSeek(event, false);
       });
+
+      // Pointer capture can fail or be cancelled when the popup loses focus.
+      // A document-level release still commits the last previewed position.
+      var releaseOutside = function (event) {
+        if (!transport.dragging) return;
+        if (els.progress.contains(event.target)) return;
+        finishSeek(event, event.type === 'pointerup');
+      };
+      document.addEventListener('pointerup', releaseOutside);
+      document.addEventListener('pointercancel', releaseOutside);
 
       els.progress.addEventListener('keydown', function (event) {
         if (!transport.enabled || !(transport.duration > 0)) return;

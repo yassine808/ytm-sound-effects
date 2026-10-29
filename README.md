@@ -86,8 +86,9 @@ A few details that matter:
   extrapolates the progress with `requestAnimationFrame` and eases small
   corrections, which keeps the bar smooth between the ~18 Hz frames. A seek or
   a new track snaps rather than sweeping. Clicking or dragging the bar previews
-  the position immediately, commits it on release through the `seek` command,
-  and ignores stale frames for 900 ms so the bar cannot jump back.
+  the position immediately and sends throttled live seeks while dragging, so the
+  music follows the pointer before release; the release commits the final
+  position and ignores stale frames for 900 ms so the bar cannot jump back.
 * **Shuffle state is read from the player-bar icon.** The player-bar button has
   no ARIA state: ON is white (`255,255,255`) and OFF is grey (`144,144,144`).
   Some newer player buttons elsewhere do expose `aria-pressed`, so the keeper
@@ -271,8 +272,14 @@ docs/popup.png  screenshot used above
   Play/pause also falls back to `video.play()/pause()` when an ad overlay or
   transient button state swallows the synthetic click.
 * Seeking, live: a real click at 50 % of the popup bar moved the actual video to
-  **123.35 s / 243.26 s** (ratio **0.507**), and `ArrowRight` nudged it forward
-  5 s. The bar exposes `role="slider"` with time-based ARIA values.
+  **123.35 s / 243.26 s** (ratio **0.507**). A real drag sent live seeks at
+  **0.351** and **0.652** before release, then settled at **0.654** after
+  release. `ArrowRight` nudged it forward 5 s. The bar exposes `role="slider"`
+  with time-based ARIA values.
+* Transport layout: the previous / play-pause / next / shuffle group measures
+  **0 px offset** from the player centre, with the elapsed and total time
+  right-aligned. The controls use filled primary play/pause glyphs and clean
+  line icons for previous, next and shuffle.
 * Popup layout: the two-column preview stays at **620 px** wide and **574 px**
   tall in the YouTube Music state, with no scrollbar; the no-tab note state is
   **587 px** tall. No design dimensions were changed from the supplied preview.
