@@ -224,8 +224,8 @@ audio.js        the graph: EQ, shelves, M/S width, saturation, compressor,
                 reverb, echo, limiter, master mute, analyser
 content.js      discovery, lifecycle, storage sync, shuffle keeper, ad guard,
                 transport commands, frame producer, debug hook
-popup.html      popup markup (switch, transport, EQ faders, effects, profiles)
-popup.css       popup styling, fixed 380 px layout, reduced-motion rules
+popup.html      preview markup with the inline noir theme (620 px two-column)
+popup-polish.js visual layer only: slider fills, ripples, animated EQ curve
 popup.js        sliders, presets, profiles, transport + smooth progress,
                 EQ-only spectrum, persistence
 icons/          16 / 48 / 128 px (official YouTube Music icon)
@@ -243,17 +243,18 @@ docs/popup.png  screenshot used above
   extension's isolated world on live YouTube Music: chain attached, `AudioContext`
   running, post-limiter RMS **0.146** with the spectrum moving, and the graph
   routed to `destination` (no silent tab).
-* Popup rendered and measured in **Brave 156** at **380×588 px** (2× DPR) —
-  inside Chromium's 600 px limit — with every input labelled, the spectrum moving
-  behind the EQ faders only, and the profile row behaving (placeholder selected,
-  delete disabled until a real profile exists).
+* Popup rendered and measured in **Brave 156** at **620×574 px** (2× DPR) —
+  inside Chromium's 600 px height limit — with every input labelled, the spectrum
+  and response curve drawn behind the EQ faders, and the profile row behaving
+  (placeholder selected, delete disabled until a real profile exists).
 * Shuffle state, probed against live YouTube Music in Brave: the player-bar
   button has no `aria-pressed`; it is grey (`144,144,144`) when off and white
   (`255,255,255`) when on. The keeper reads `aria-pressed` when a newer button
   provides it, then falls back to that colour, scoped strictly to the player bar.
 * The no-tab popup renders a working **Open YouTube Music** button: it creates
   `https://music.youtube.com/` when no tab exists and focuses an existing one;
-  the popup stays 380×588 with the CTA visible.
+  the popup stays within 600 px (620×587) with the CTA visible and the footer
+  hidden so no scrollbar appears.
 * Shuffle, live: turn on → reopen in a fresh tab with YouTube Music's local
   storage cleared → still on; turn off → reopen → still off.
 * Ads, live: a real 15 s pre-roll in Brave was recognised from `ad-showing`,
@@ -265,15 +266,16 @@ docs/popup.png  screenshot used above
 * Transport, in Brave: the harness drove `playpause`, `next`, `prev` and
   `shuffle` through the real `content.js` and asserted the corresponding
   player-bar buttons received the clicks. The popup test measured the progress
-  fill moving **117.6 → 118.2 px over 350 ms** while the labels advanced
+  fill moving **198.8 → 199.7 px over 350 ms** while the labels advanced
   **1:15 → 1:16**, and clicked all four controls through the popup itself.
+  Play/pause also falls back to `video.play()/pause()` when an ad overlay or
+  transient button state swallows the synthetic click.
 * Seeking, live: a real click at 50 % of the popup bar moved the actual video to
   **123.35 s / 243.26 s** (ratio **0.507**), and `ArrowRight` nudged it forward
   5 s. The bar exposes `role="slider"` with time-based ARIA values.
-* Popup layout after the transport was added: still **380×588 px** in both the
-  YouTube Music and no-tab states (Chromium limit 600), with no scrollbar. The
-  transport group measures dead-centre (`group offset 0 px`), with the elapsed /
-  total time right-aligned.
+* Popup layout: the two-column preview stays at **620 px** wide and **574 px**
+  tall in the YouTube Music state, with no scrollbar; the no-tab note state is
+  **587 px** tall. No design dimensions were changed from the supplied preview.
 
 Not verified: how it sounds on your speakers. That needs your ears.
 

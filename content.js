@@ -371,12 +371,26 @@
       }
 
       if (cmd === 'playpause') {
+        var video = findVideo() || videoEl;
+        var wasPaused = video ? video.paused : null;
         var toggle = barButton(['Pause', 'Play']);
         if (toggle) {
           toggle.click();
+          // Ads and transient overlays can swallow the synthetic click. If the
+          // media state did not change, drive the element directly.
+          if (video && typeof wasPaused === 'boolean') {
+            setTimeout(function () {
+              if (video.paused !== wasPaused) return;
+              if (wasPaused) {
+                var playing = video.play();
+                if (playing && playing.catch) playing.catch(function () {});
+              } else {
+                video.pause();
+              }
+            }, 140);
+          }
           return { ok: true, action: 'playpause' };
         }
-        var video = videoEl || findVideo();
         if (!video) return { ok: false, reason: 'no player' };
         if (video.paused) {
           var playing = video.play();

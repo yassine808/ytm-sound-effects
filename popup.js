@@ -572,22 +572,6 @@
       var band = document.createElement('div');
       band.className = 'band is-flat';
 
-      var out = document.createElement('span');
-      out.className = 'db';
-      out.textContent = '0';
-
-      var fader = document.createElement('div');
-      fader.className = 'fader';
-
-      var rail = document.createElement('span');
-      rail.className = 'fader-rail';
-
-      var zero = document.createElement('span');
-      zero.className = 'fader-zero';
-
-      var meter = document.createElement('span');
-      meter.className = 'fader-meter';
-
       var input = document.createElement('input');
       input.type = 'range';
       input.className = 'vert';
@@ -599,18 +583,24 @@
       input.setAttribute('aria-label', fmtHz(hz) + ' Hz gain');
       input.title = fmtHz(hz) + ' Hz';
 
-      fader.appendChild(rail);
-      fader.appendChild(zero);
-      fader.appendChild(meter);
-      fader.appendChild(input);
-
       var label = document.createElement('span');
       label.className = 'hz';
       label.textContent = fmtHz(hz);
 
-      band.appendChild(out);
-      band.appendChild(fader);
+      // Kept for state bookkeeping only; the preview design shows the fader
+      // and its frequency, not a per-band number or meter.
+      var out = document.createElement('span');
+      out.className = 'db';
+      out.hidden = true;
+
+      var meter = document.createElement('span');
+      meter.className = 'fader-meter';
+      meter.hidden = true;
+
+      band.appendChild(input);
       band.appendChild(label);
+      band.appendChild(out);
+      band.appendChild(meter);
       frag.appendChild(band);
 
       bandInputs.push(input);

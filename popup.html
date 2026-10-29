@@ -4,11 +4,344 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>YTM Sound Effects</title>
-    <link rel="stylesheet" href="popup.css" />
+    <style>/* YTM Sound Effects — noir + YTM red */
+:root {
+  --bg: #060607;
+  --s1: #0e0e10;
+  --line: rgba(255, 255, 255, 0.07);
+  --line-2: rgba(255, 255, 255, 0.13);
+  --text: #f5f5f6;
+  --muted: #9a9aa3;
+  --dim: #62626b;
+  --red: #ff2d44;
+  --red-2: #ff5468;
+  --grad: linear-gradient(135deg, #ff4258, #d6112c);
+  --glow: rgba(255, 45, 68, 0.4);
+  --radius: 16px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { background: var(--bg); }
+
+body {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  width: 620px;
+  padding: 14px 16px 10px;
+  color: var(--text);
+  font: 13px/1.4 "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: var(--bg);
+}
+
+/* Drifting aurora */
+body::before {
+  content: "";
+  position: absolute; inset: -60px; z-index: -1;
+  background:
+    radial-gradient(40% 36% at 14% 0%, rgba(255, 45, 68, 0.26), transparent 70%),
+    radial-gradient(34% 30% at 92% 100%, rgba(255, 45, 68, 0.14), transparent 70%),
+    radial-gradient(30% 26% at 60% 40%, rgba(255, 255, 255, 0.04), transparent 70%);
+  animation: drift 16s ease-in-out infinite alternate;
+}
+@keyframes drift {
+  from { transform: translate3d(-2%, 0, 0) scale(1); }
+  to   { transform: translate3d(3%, -2%, 0) scale(1.12); }
+}
+
+.sr {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; position: relative; overflow: hidden; }
+button:disabled { cursor: default; opacity: 0.35; }
+:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+fieldset { border: 0; min-width: 0; }
+
+/* Ripple (added by ui.js) */
+.ripple {
+  position: absolute; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+  transform: scale(0);
+  animation: ripple 0.6s var(--ease) forwards;
+  pointer-events: none;
+}
+@keyframes ripple { to { transform: scale(1); opacity: 0; } }
+
+/* ---------- Header ---------- */
+.hero { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.logo {
+  width: 36px; height: 36px; border-radius: 11px;
+  box-shadow: 0 0 0 1px var(--line-2), 0 6px 22px var(--glow);
+}
+.hero-text { flex: 1; min-width: 0; }
+.hero-text h1 { font-size: 15px; font-weight: 650; letter-spacing: -0.015em; }
+.hero-text p {
+  display: flex; align-items: center; gap: 7px;
+  margin-top: 1px; font-size: 11px; color: var(--muted);
+}
+.sep { width: 3px; height: 3px; border-radius: 50%; background: var(--red); }
+
+.power { position: relative; display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+.power-state { order: -1; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: var(--dim); transition: color 0.3s; }
+.power-state::after { content: "OFF"; }
+.power input:checked ~ .power-state { color: var(--red-2); }
+.power input:checked ~ .power-state::after { content: "ON"; }
+.power-track {
+  position: relative; width: 44px; height: 25px; border-radius: 999px;
+  background: #1a1a1e;
+  box-shadow: inset 0 0 0 1px var(--line-2), inset 0 2px 5px rgba(0, 0, 0, 0.6);
+  transition: background 0.35s var(--ease), box-shadow 0.35s var(--ease);
+}
+.power-knob {
+  position: absolute; top: 3px; left: 3px; width: 19px; height: 19px; border-radius: 50%;
+  background: linear-gradient(180deg, #fff, #cfcfd4);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  transition: transform 0.35s var(--ease);
+}
+.power input:checked ~ .power-track {
+  background: var(--grad);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 0 20px var(--glow);
+}
+.power input:checked ~ .power-track .power-knob { transform: translateX(19px); }
+.power input:focus-visible ~ .power-track { outline: 2px solid var(--red); outline-offset: 2px; }
+
+/* ---------- Note ---------- */
+.note {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-bottom: 10px; padding: 8px 12px; border-radius: 12px;
+  background: rgba(255, 45, 68, 0.09);
+  border: 1px solid rgba(255, 45, 68, 0.28);
+  color: #ffb3bc; font-size: 12px;
+}
+.note[hidden] { display: none; }
+.note-action {
+  padding: 4px 11px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1); color: #fff;
+  font-size: 11px; font-weight: 600; transition: background 0.2s;
+}
+.note-action:hover { background: rgba(255, 255, 255, 0.18); }
+
+/* ---------- Layout ---------- */
+main#controls {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  transition: opacity 0.4s, filter 0.4s;
+}
+.player, .chips, .profiles { grid-column: 1 / -1; }
+body:has(#enabled:not(:checked)) main#controls { opacity: 0.4; filter: saturate(0.2); }
+main#controls.is-off, body.is-off main#controls { opacity: 0.4; filter: saturate(0.2); }
+
+/* Glass card base */
+.player, .card {
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 12px 32px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(10px);
+}
+
+/* ---------- Player ---------- */
+.player { padding: 10px 14px 8px; }
+.transport { display: flex; align-items: center; gap: 4px; }
+.tbtn {
+  display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%;
+  color: var(--muted);
+  transition: color 0.2s, background 0.2s, transform 0.25s var(--ease);
+}
+.tbtn svg { width: 18px; height: 18px; fill: currentColor; position: relative; }
+.tbtn:not(:disabled):hover { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+.tbtn:not(:disabled):active { transform: scale(0.9); }
+
+.tbtn-play {
+  width: 42px; height: 42px; margin: 0 4px;
+  color: #0a0a0b;
+  background: linear-gradient(180deg, #ffffff, #d4d4d9);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25), 0 6px 22px var(--glow);
+}
+.tbtn-play:not(:disabled):hover { color: #0a0a0b; background: linear-gradient(180deg, #fff, #e6e6ea); transform: scale(1.07); }
+.tbtn-play:not(:disabled):active { transform: scale(0.94); }
+.tbtn-play svg { width: 20px; height: 20px; }
+.tbtn-play .ic-pause { display: none; }
+.tbtn-play.is-playing .ic-play, .player.is-playing .tbtn-play .ic-play { display: none; }
+.tbtn-play.is-playing .ic-pause, .player.is-playing .tbtn-play .ic-pause { display: block; }
+
+.tbtn-toggle svg { fill: none; }
+.tbtn-toggle::after {
+  content: ""; position: absolute; bottom: 4px; left: 50%; width: 4px; height: 4px; margin-left: -2px;
+  border-radius: 50%; background: var(--red); transform: scale(0); transition: transform 0.3s var(--ease);
+}
+.tbtn-toggle[aria-pressed="true"] { color: var(--red-2); }
+.tbtn-toggle[aria-pressed="true"]::after { transform: scale(1); }
+
+.time {
+  margin-left: auto; display: inline-flex; gap: 4px;
+  font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--muted);
+}
+.time-sep { color: var(--dim); }
+
+.progress { margin-top: 6px; padding: 6px 0; cursor: pointer; }
+.progress-rail {
+  position: relative; display: block; height: 4px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1); transition: height 0.2s var(--ease);
+}
+.progress:hover .progress-rail { height: 6px; }
+.progress-fill {
+  position: absolute; inset: 0 auto 0 0; width: 0; border-radius: inherit; overflow: hidden;
+  background: linear-gradient(90deg, #8a0f1f, var(--red) 70%, var(--red-2));
+  box-shadow: 0 0 12px var(--glow);
+}
+.progress-shine {
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  transform: translateX(-100%); animation: shine 2.2s linear infinite; opacity: 0.55;
+}
+@keyframes shine { to { transform: translateX(100%); } }
+.progress-head {
+  position: absolute; top: 50%; left: 0; width: 12px; height: 12px; margin: -6px 0 0 -6px;
+  border-radius: 50%; background: #fff;
+  box-shadow: 0 0 0 4px var(--glow), 0 2px 6px rgba(0, 0, 0, 0.5);
+  transform: scale(0); transition: transform 0.25s var(--ease);
+}
+.progress:hover .progress-head { transform: scale(1); }
+
+/* ---------- Presets ---------- */
+.chips { display: flex; gap: 6px; }
+.chip {
+  flex: 1; padding: 7px 0; border-radius: 999px;
+  font-size: 12px; font-weight: 550; letter-spacing: 0.01em;
+  color: var(--muted);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.025));
+  box-shadow: inset 0 0 0 1px var(--line), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: color 0.25s, background 0.3s, box-shadow 0.3s, transform 0.25s var(--ease);
+}
+.chip:hover { color: var(--text); transform: translateY(-1px); box-shadow: inset 0 0 0 1px var(--line-2), inset 0 1px 0 rgba(255, 255, 255, 0.1); }
+.chip:active { transform: scale(0.96); }
+.chip.is-active {
+  color: #fff;
+  background: var(--grad);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 6px 20px var(--glow);
+}
+
+/* ---------- Cards ---------- */
+.card { padding: 12px 14px 14px; display: flex; flex-direction: column; }
+.card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.card-head h2 { font-size: 10.5px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+.unit {
+  padding: 2px 9px; border-radius: 999px; font-size: 10px; font-weight: 600; color: var(--dim);
+  background: rgba(255, 255, 255, 0.05); box-shadow: inset 0 0 0 1px var(--line);
+}
+
+/* ---------- Equalizer ---------- */
+.eq-stage { position: relative; flex: 1; min-height: 190px; }
+.viz, .curve {
+  position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;
+}
+.viz { opacity: 0.4; }
+.eq-bands { position: relative; display: flex; justify-content: space-between; height: 100%; }
+.eq-bands > * {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  font-size: 9.5px; font-weight: 600; letter-spacing: 0.04em; color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.eq-bands > * label, .eq-bands > * span { font-size: 9.5px; color: var(--dim); }
+.eq-bands > * output { font-size: 9.5px; color: var(--muted); }
+.eq-bands input[type="range"] {
+  writing-mode: vertical-lr; direction: rtl;
+  flex: 1; min-height: 0; width: 16px; height: auto;
+}
+.eq-bands input[type="range"]::-webkit-slider-runnable-track {
+  width: 4px; height: auto;
+  background:
+    linear-gradient(to top, transparent var(--a, 0%), var(--red) var(--a, 0%), var(--red-2) var(--b, 0%), transparent var(--b, 0%)),
+    rgba(255, 255, 255, 0.1);
+}
+.eq-bands input[type="range"]::-webkit-slider-thumb { margin-top: 0; margin-left: -5px; width: 14px; height: 14px; }
+
+/* ---------- Sliders ---------- */
+.fx-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; }
+.slider-row { display: flex; flex-direction: column; gap: 5px; }
+.slider-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.slider-name { font-size: 12px; font-weight: 550; color: var(--text); }
+.value { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--muted); transition: color 0.2s; }
+.slider-row:hover .value, .slider-row:focus-within .value { color: var(--red-2); }
+.fx-divider { height: 1px; margin: 12px 0 10px; background: linear-gradient(90deg, transparent, var(--line-2), transparent); }
+.preamp-row { flex-direction: row; align-items: center; gap: 12px; }
+.preamp-row .slider-meta { flex: 0 0 auto; gap: 12px; }
+.preamp-row input { flex: 1; }
+
+input[type="range"] {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 16px;
+  background: transparent; cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 999px;
+  background:
+    linear-gradient(90deg, transparent var(--a, 0%), var(--red) var(--a, 0%), var(--red-2) var(--b, 0%), transparent var(--b, 0%)),
+    rgba(255, 255, 255, 0.1);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%;
+  background: linear-gradient(180deg, #fff, #d6d6db);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.6), 0 0 0 0 var(--glow);
+  transition: box-shadow 0.25s var(--ease), transform 0.25s var(--ease);
+}
+input[type="range"]:hover::-webkit-slider-thumb { box-shadow: 0 1px 5px rgba(0, 0, 0, 0.6), 0 0 0 5px var(--glow); }
+input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.2); box-shadow: 0 1px 5px rgba(0, 0, 0, 0.6), 0 0 0 7px var(--glow); }
+
+/* ---------- Profiles ---------- */
+.profiles { margin-top: 0; }
+.prof-row { display: flex; gap: 6px; align-items: center; }
+.prof-row[hidden] { display: none; }
+.txt {
+  flex: 1; min-width: 0; height: 34px; padding: 0 12px; border-radius: 11px;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--line);
+  color: var(--text); font: inherit;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+.txt:focus { outline: 0; border-color: var(--red); background: rgba(255, 255, 255, 0.06); box-shadow: 0 0 0 3px rgba(255, 45, 68, 0.18); }
+select.txt { color-scheme: dark; }
+.txt::placeholder { color: var(--dim); }
+.mini {
+  height: 34px; padding: 0 16px; border-radius: 11px; font-size: 12px; font-weight: 600;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+  box-shadow: inset 0 0 0 1px var(--line-2), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: background 0.2s, color 0.2s, transform 0.2s var(--ease);
+}
+.mini:not(:disabled):hover { background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.08)); }
+.mini:not(:disabled):active { transform: scale(0.95); }
+#profileSave, #profileSaveStart { color: #fff; }
+#profileSave { background: var(--grad); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 4px 14px var(--glow); }
+.mini-del { width: 34px; padding: 0; font-size: 17px; color: var(--muted); }
+.mini-del:not(:disabled):hover { background: rgba(255, 45, 68, 0.2); color: var(--red-2); }
+
+/* ---------- Footer ---------- */
+.foot {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line);
+}
+.ghost {
+  padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 600; color: var(--muted);
+  transition: color 0.2s, background 0.2s;
+}
+.ghost:hover { color: var(--red-2); background: rgba(255, 45, 68, 0.1); }
+.version { font-size: 10px; letter-spacing: 0.06em; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+html,body{margin:0}
+/* Popup fit: the aurora is intentionally oversized; keep it from enlarging the window. */
+html { overflow: hidden; }
+body.has-note .foot { display: none; }</style>
   </head>
   <body>
     <header class="hero">
-      <img class="logo" src="icons/48.png" alt="" width="32" height="32" />
+      <div class="logo" style="background:linear-gradient(135deg,#ff4258,#d6112c)"></div>
       <div class="hero-text">
         <h1>Sound Effects</h1>
         <p>YouTube Music <span class="sep" aria-hidden="true"></span> Studio chain</p>
@@ -52,7 +385,7 @@
           </button>
           <span class="time" aria-hidden="true"><span id="curTime">0:00</span><span class="time-sep">/</span><span id="durTime">0:00</span></span>
         </div>
-        <div class="progress" id="progress" role="slider" tabindex="0" aria-label="Track progress" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0:00 of 0:00">
+        <div class="progress" id="progress" role="progressbar" aria-label="Track progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
           <span class="progress-rail">
             <span class="progress-fill" id="progressFill"><span class="progress-shine" aria-hidden="true"></span></span>
             <span class="progress-head" id="progressHead" aria-hidden="true"></span>
@@ -188,10 +521,13 @@
 
     <footer class="foot">
       <button id="reset" type="button" class="ghost">Reset all</button>
-      <span class="version">v0.5.2</span>
+      <span class="version">v0.6.0</span>
     </footer>
 
+    
     <script src="audio.js"></script>
     <script src="popup.js"></script>
+    <script src="popup-polish.js"></script>
+  
   </body>
 </html>
