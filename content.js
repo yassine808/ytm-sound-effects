@@ -17,6 +17,14 @@
   }
 
   var SoundChain = window.YTMAudio.SoundChain;
+  var BUILD = '0.7.1';
+
+  // Lives in the console so a stale content script is obvious at a glance.
+  try {
+    console.info('[YTM Sound Effects] content script ' + BUILD + ' loaded');
+  } catch (e) {
+    /* ignore */
+  }
 
   var chain = null;
   var videoEl = null;
@@ -630,14 +638,14 @@
       'gap:9px',
       'padding:8px 12px 8px 10px',
       'border-radius:999px',
-      'background:rgba(18,18,21,.86)',
-      'border:1px solid rgba(255,255,255,.14)',
+      'background:rgba(24,24,28,.95)',
+      'border:1px solid rgba(255,255,255,.2)',
       'box-shadow:0 12px 30px -14px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.06)',
       'color:#f4f4f5',
-      'font:600 11px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif',
+      'font:600 11.5px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif',
       'letter-spacing:.01em',
       'cursor:pointer',
-      'opacity:.9',
+      'opacity:1',
       'user-select:none',
       'transform-origin:100% 50%',
       'transition:opacity .16s ease,transform .16s ease,border-color .16s ease,background .16s ease'
@@ -715,16 +723,14 @@
     });
     el.addEventListener('keydown', onVolumeKey);
     el.addEventListener('mouseenter', function () {
-      el.style.opacity = '1';
       el.style.transform = 'scale(1.03)';
-      el.style.background = 'rgba(26,26,30,.95)';
-      el.style.borderColor = 'rgba(255,255,255,.24)';
+      el.style.background = 'rgba(34,34,39,.98)';
+      el.style.borderColor = 'rgba(255,255,255,.32)';
     });
     el.addEventListener('mouseleave', function () {
-      el.style.opacity = '.9';
       el.style.transform = 'scale(1)';
-      el.style.background = 'rgba(18,18,21,.86)';
-      el.style.borderColor = 'rgba(255,255,255,.14)';
+      el.style.background = 'rgba(24,24,28,.95)';
+      el.style.borderColor = 'rgba(255,255,255,.2)';
     });
 
     (document.body || document.documentElement).appendChild(el);
@@ -1213,7 +1219,11 @@
 
   function boot() {
     // Build the volume pill right away; it must not wait on storage.
-    syncVolumeControl();
+    try {
+      syncVolumeControl();
+    } catch (e) {
+      warn('volume pill failed to build:', e && e.message ? e.message : e);
+    }
 
     loadConfig(function () {
       scan();
@@ -1406,7 +1416,15 @@
       frame: analyseFrame,
       command: playerCommand,
       setVolume: applyVolume,
-      toggleMute: toggleVolumeMute
+      toggleMute: toggleVolumeMute,
+      version: BUILD,
+      /** Force the volume pill back into the DOM (debug handle). */
+      showVolume: function () {
+        syncVolumeControl();
+        positionVolumeControl();
+        paintVolume();
+        return !!volumeEl;
+      }
     };
   } catch (e) {
     /* debug surface must never break the extension */
