@@ -17,7 +17,7 @@
   }
 
   var SoundChain = window.YTMAudio.SoundChain;
-  var BUILD = '0.7.2';
+  var BUILD = '0.7.3';
 
   // Lives in the console so a stale content script is obvious at a glance.
   try {

@@ -148,8 +148,9 @@ main#controls.is-off, body.is-off main#controls { opacity: 0.4; filter: saturate
 /* ---------- Player ---------- */
 .player { padding: 10px 14px 8px; }
 .transport { display: flex; align-items: center; gap: 4px; }
-/* Equal spacer + time column keep the transport group centred in the card. */
-.transport::before { content: ""; flex: 1 1 0; }
+/* Volume on the left balances the time column on the right, so the transport
+   group stays centred in the card. */
+.transport-mid { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
 .tbtn {
   display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%;
   color: var(--muted);
@@ -187,10 +188,10 @@ main#controls.is-off, body.is-off main#controls { opacity: 0.4; filter: saturate
 }
 .time-sep { color: var(--dim); }
 
-/* ---------- Volume row ---------- */
+/* ---------- Volume (left of the transport) ---------- */
 .volume {
   display: flex; align-items: center; gap: 7px;
-  margin-top: 2px; padding: 1px 0 3px;
+  flex: 1 1 0; min-width: 0; padding-right: 10px;
   cursor: pointer; touch-action: none; user-select: none;
   transition: opacity 0.2s var(--ease);
 }
@@ -213,7 +214,7 @@ main#controls.is-off, body.is-off main#controls { opacity: 0.4; filter: saturate
 .volume.is-muted .vol-btn { color: var(--red-2); }
 
 .vol-rail {
-  position: relative; flex: 1 1 auto; height: 4px; border-radius: 999px;
+  position: relative; flex: 1 1 auto; min-width: 0; height: 4px; border-radius: 999px;
   background: rgba(255, 255, 255, 0.1);
   transition: height 0.2s var(--ease), box-shadow 0.2s var(--ease);
 }
@@ -426,45 +427,47 @@ body.has-note .foot { display: none; }</style>
       <section class="player" id="player" aria-labelledby="playerLabel">
         <h2 id="playerLabel" class="sr">Playback</h2>
         <div class="transport">
-          <button type="button" id="prevBtn" class="tbtn" aria-label="Previous track" title="Previous" disabled>
-            <svg class="ic-line" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M19 6.6 9.8 12 19 17.4V6.6Z" />
-              <path d="M5.2 6v12" />
-            </svg>
-          </button>
-          <button type="button" id="playBtn" class="tbtn tbtn-play" aria-label="Play" title="Play" disabled>
-            <svg class="ic-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5.6c0-.9 1-1.4 1.7-.9l8.7 6.4c.6.4.6 1.4 0 1.8l-8.7 6.4c-.7.5-1.7 0-1.7-.9V5.6Z" /></svg>
-            <svg class="ic-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="5" width="3.6" height="14" rx="1.8" /><rect x="13.4" y="5" width="3.6" height="14" rx="1.8" /></svg>
-          </button>
-          <button type="button" id="nextBtn" class="tbtn" aria-label="Next track" title="Next" disabled>
-            <svg class="ic-line" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M5 6.6 14.2 12 5 17.4V6.6Z" />
-              <path d="M18.8 6v12" />
-            </svg>
-          </button>
-          <button type="button" id="shuffleBtn" class="tbtn tbtn-toggle" aria-label="Shuffle" aria-pressed="false" title="Shuffle" disabled>
-            <svg class="ic-line" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 7h3.5c4.5 0 6.5 10 11 10H21" />
-              <path d="m18 14 3 3-3 3" />
-              <path d="M3 17h3.5c1.5 0 2.7-.9 3.8-2.4L14.8 7H21" />
-              <path d="m18 4 3 3-3 3" />
-            </svg>
-          </button>
+          <div class="volume is-disabled" id="volume" role="slider" tabindex="0" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-disabled="true">
+            <button type="button" id="volBtn" class="vol-btn" aria-label="Mute" title="Mute" disabled>
+              <svg class="ic-vol-on" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 9.4h3.2L12 5.4v13.2L7.2 14.6H4z" fill="currentColor" />
+                <path d="M15.6 9.3a4.2 4.2 0 0 1 0 5.4M18.3 6.9a7.6 7.6 0 0 1 0 10.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              </svg>
+              <svg class="ic-vol-off" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 9.4h3.2L12 5.4v13.2L7.2 14.6H4z" fill="currentColor" />
+                <path d="M15.6 9.4l5 5.2M20.6 9.4l-5 5.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              </svg>
+            </button>
+            <span class="vol-rail"><span class="vol-fill" id="volFill"></span><span class="vol-head" id="volHead" aria-hidden="true"></span></span>
+            <span class="vol-value" id="volValue">&mdash;</span>
+          </div>
+          <div class="transport-mid">
+            <button type="button" id="prevBtn" class="tbtn" aria-label="Previous track" title="Previous" disabled>
+              <svg class="ic-line" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 6.6 9.8 12 19 17.4V6.6Z" />
+                <path d="M5.2 6v12" />
+              </svg>
+            </button>
+            <button type="button" id="playBtn" class="tbtn tbtn-play" aria-label="Play" title="Play" disabled>
+              <svg class="ic-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5.6c0-.9 1-1.4 1.7-.9l8.7 6.4c.6.4.6 1.4 0 1.8l-8.7 6.4c-.7.5-1.7 0-1.7-.9V5.6Z" /></svg>
+              <svg class="ic-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="5" width="3.6" height="14" rx="1.8" /><rect x="13.4" y="5" width="3.6" height="14" rx="1.8" /></svg>
+            </button>
+            <button type="button" id="nextBtn" class="tbtn" aria-label="Next track" title="Next" disabled>
+              <svg class="ic-line" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 6.6 14.2 12 5 17.4V6.6Z" />
+                <path d="M18.8 6v12" />
+              </svg>
+            </button>
+            <button type="button" id="shuffleBtn" class="tbtn tbtn-toggle" aria-label="Shuffle" aria-pressed="false" title="Shuffle" disabled>
+              <svg class="ic-line" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7h3.5c4.5 0 6.5 10 11 10H21" />
+                <path d="m18 14 3 3-3 3" />
+                <path d="M3 17h3.5c1.5 0 2.7-.9 3.8-2.4L14.8 7H21" />
+                <path d="m18 4 3 3-3 3" />
+              </svg>
+            </button>
+          </div>
           <span class="time" aria-hidden="true"><span id="curTime">0:00</span><span class="time-sep">/</span><span id="durTime">0:00</span></span>
-        </div>
-        <div class="volume is-disabled" id="volume" role="slider" tabindex="0" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-disabled="true">
-          <button type="button" id="volBtn" class="vol-btn" aria-label="Mute" title="Mute" disabled>
-            <svg class="ic-vol-on" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 9.4h3.2L12 5.4v13.2L7.2 14.6H4z" fill="currentColor" />
-              <path d="M15.6 9.3a4.2 4.2 0 0 1 0 5.4M18.3 6.9a7.6 7.6 0 0 1 0 10.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-            </svg>
-            <svg class="ic-vol-off" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 9.4h3.2L12 5.4v13.2L7.2 14.6H4z" fill="currentColor" />
-              <path d="M15.6 9.4l5 5.2M20.6 9.4l-5 5.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-            </svg>
-          </button>
-          <span class="vol-rail"><span class="vol-fill" id="volFill"></span><span class="vol-head" id="volHead" aria-hidden="true"></span></span>
-          <span class="vol-value" id="volValue">&mdash;</span>
         </div>
         <div class="progress" id="progress" role="slider" aria-label="Track progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
           <span class="progress-rail">
