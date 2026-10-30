@@ -944,15 +944,29 @@
     }
   }
 
-  /** Warn when the content script is not live in the active tab (fresh install,
-      reload needed, or the tab predates the extension). */
-  function checkActiveTab() {
+  /** Which of the open YouTube Music tabs the popup should drive: the one in
+      front, else the one making sound, else the first. */
+  function pickTargetTab(tabs) {
+    var list = tabs || [];
+    var i;
+    for (i = 0; i < list.length; i++) {
+      if (list[i] && list[i].active) return list[i];
+    }
+    for (i = 0; i < list.length; i++) {
+      if (list[i] && list[i].audible) return list[i];
+    }
+    return list.length ? list[0] : null;
+  }
+
+  /** Target whichever YouTube Music tab is open, even when another tab has
+      focus. The effects and the player live in that tab, so the popup does not
+      need to be opened over it. */
+  function resolveTargetTab() {
     if (typeof chrome === 'undefined' || !chrome.tabs) return;
     try {
-      chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-        var tab = tabs && tabs[0];
-        var isYtm = !!(tab && /^https:\/\/music\.youtube\.com\//.test(tab.url || ''));
-        if (!isYtm) {
+      chrome.tabs.query({ url: 'https://music.youtube.com/*' }, function (tabs) {
+        var tab = pickTargetTab(tabs);
+        if (!tab || tab.id === undefined) {
           setTransportEnabled(false);
           showNote('Effects live on YouTube Music.', 'Open YouTube Music', openYouTubeMusic);
           return;
@@ -1205,7 +1219,7 @@
 
     load();
     loadProfiles();
-    checkActiveTab();
+    resolveTargetTab();
   }
 
   try {

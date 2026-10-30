@@ -350,6 +350,419 @@
   }
 
   // ---------------------------------------------------------------------------
+  // volume control pinned to the player bar
+  // ---------------------------------------------------------------------------
+  /* Scroll over the pill to change the page's own volume through YouTube's
+     player API, so YTM's slider, mute state and saved volume stay in sync.
+     Click the pill to mute; arrow keys work while it has focus. */
+
+  var VOLUME_STEP = 5; // percent per wheel notch
+  var VOLUME_WHEEL_PX = 50; // wheel pixels per notch
+  var VOLUME_WHEEL_GAP = 12; // px between the pill and the player bar
+
+  var volumeEl = null;
+  var volumeFill = null;
+  var volumeThumb = null;
+  var volumeValue = null;
+  var volumeIconOn = null;
+  var volumeIconOff = null;
+  var volumeWheelAccum = 0;
+  var volumePainted = { pct: -1, muted: null, visible: null, bottom: '' };
+  var volumeSyncAt = 0;
+
+  function playerApi() {
+    try {
+      return document.getElementById('movie_player');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function readVolume() {
+    var api = playerApi();
+    if (api && typeof api.getVolume === 'function') {
+      try {
+        var pct = Number(api.getVolume());
+        if (isFinite(pct)) {
+          return {
+            pct: Math.max(0, Math.min(100, Math.round(pct))),
+            muted: typeof api.isMuted === 'function' ? !!api.isMuted() : false
+          };
+        }
+      } catch (e) {
+        /* fall through to the media element */
+      }
+    }
+    var video = videoEl || findVideo();
+    if (!video) return null;
+    return {
+      pct: Math.round((isFinite(video.volume) ? video.volume : 1) * 100),
+      muted: !!video.muted
+    };
+  }
+
+  function applyVolume(pct) {
+    pct = Math.max(0, Math.min(100, Math.round(pct)));
+    var api = playerApi();
+    if (api && typeof api.setVolume === 'function') {
+      try {
+        // Turning it up from silence must also lift the site's mute flag.
+        if (pct > 0 && typeof api.isMuted === 'function' && api.isMuted() &&
+            typeof api.unMute === 'function') {
+          api.unMute();
+        }
+        api.setVolume(pct);
+        paintVolume();
+        bumpVolume();
+        return pct;
+      } catch (e) {
+        /* fall through to the media element */
+      }
+    }
+    var video = videoEl || findVideo();
+    if (video) {
+      if (pct > 0) video.muted = false;
+      video.volume = pct / 100;
+    }
+    paintVolume();
+    bumpVolume();
+    return pct;
+  }
+
+  function toggleVolumeMute() {
+    var api = playerApi();
+    if (api && typeof api.mute === 'function' && typeof api.isMuted === 'function') {
+      try {
+        if (api.isMuted()) {
+          if (typeof api.unMute === 'function') api.unMute();
+        } else {
+          api.mute();
+        }
+        paintVolume();
+        bumpVolume();
+        return;
+      } catch (e) {
+        /* fall through to the media element */
+      }
+    }
+    var video = videoEl || findVideo();
+    if (video) video.muted = !video.muted;
+    paintVolume();
+    bumpVolume();
+  }
+
+  /** Small scale kick so every wheel notch gets visible feedback. */
+  function bumpVolume() {
+    if (!volumeEl || typeof volumeEl.animate !== 'function') return;
+    try {
+      volumeEl.animate(
+        [{ transform: 'scale(1)' }, { transform: 'scale(1.06)' }, { transform: 'scale(1)' }],
+        { duration: 180, easing: 'cubic-bezier(.2,.8,.2,1)' }
+      );
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  function popIn(el) {
+    if (!el || typeof el.animate !== 'function') return;
+    try {
+      el.animate(
+        [
+          { opacity: 0, transform: 'translateY(12px) scale(.94)' },
+          { opacity: 1, transform: 'translateY(0) scale(1)' }
+        ],
+        { duration: 280, easing: 'cubic-bezier(.2,.8,.2,1)' }
+      );
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  function paintVolume() {
+    if (!volumeEl) return;
+    var state = readVolume();
+    var pct = state ? state.pct : 0;
+    var muted = state ? state.muted : false;
+    var shown = muted ? 0 : pct;
+    if (volumePainted.pct === shown && volumePainted.muted === muted) return;
+    volumePainted.pct = shown;
+    volumePainted.muted = muted;
+
+    var fillBg = muted
+      ? 'rgba(255,255,255,.35)'
+      : 'linear-gradient(90deg,#ff7a7a,#ff2d2d)';
+    var thumbRing = muted ? 'rgba(255,255,255,.35)' : 'rgba(255,45,45,.55)';
+
+    if (volumeFill) {
+      volumeFill.style.width = shown + '%';
+      volumeFill.style.background = fillBg;
+    }
+    if (volumeThumb) {
+      volumeThumb.style.left = shown + '%';
+      volumeThumb.style.boxShadow = '0 2px 6px rgba(0,0,0,.55), 0 0 0 2px ' + thumbRing;
+    }
+    if (volumeValue) volumeValue.textContent = muted ? 'muted' : String(pct);
+    if (volumeIconOn) volumeIconOn.style.display = muted ? 'none' : 'block';
+    if (volumeIconOff) volumeIconOff.style.display = muted ? 'block' : 'none';
+
+    volumeEl.setAttribute('aria-valuenow', String(shown));
+    volumeEl.setAttribute('aria-valuetext', muted ? 'Muted' : pct + '%');
+    volumeEl.title = muted ? 'Muted · scroll or click to unmute' : 'Volume ' + pct + '% · scroll to adjust';
+  }
+
+  function onVolumeWheel(event) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    var delta = event.deltaY;
+    if (!isFinite(delta) || delta === 0) return;
+    if (event.deltaMode === 1) delta *= 16; // lines
+    else if (event.deltaMode === 2) delta *= 100; // pages
+
+    // Trackpads fire many tiny deltas; accumulate until a whole notch exists so
+    // one gesture does not jump the volume around.
+    volumeWheelAccum += delta;
+    var notches = volumeWheelAccum < 0
+      ? Math.ceil(volumeWheelAccum / VOLUME_WHEEL_PX)
+      : Math.floor(volumeWheelAccum / VOLUME_WHEEL_PX);
+    if (!notches) return;
+    volumeWheelAccum -= notches * VOLUME_WHEEL_PX;
+
+    var state = readVolume();
+    if (!state) return;
+    // Scrolling up (negative delta) is louder.
+    applyVolume(state.pct - notches * VOLUME_STEP);
+  }
+
+  function onVolumeKey(event) {
+    var state = readVolume();
+    if (!state) return;
+    if (event.key === 'ArrowUp' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      applyVolume(state.pct + VOLUME_STEP);
+    } else if (event.key === 'ArrowDown' || event.key === 'ArrowLeft') {
+      event.preventDefault();
+      applyVolume(state.pct - VOLUME_STEP);
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      applyVolume(100);
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      applyVolume(0);
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      toggleVolumeMute();
+    }
+  }
+
+  /** Keep the pill just above the player bar's right corner. */
+  function positionVolumeControl() {
+    if (!volumeEl || !volumeEl.isConnected) return;
+    var bar = document.querySelector('ytmusic-player-bar');
+    var rect = bar ? bar.getBoundingClientRect() : null;
+    var hasBar = !!(rect && rect.height > 0 && rect.bottom > 0);
+    var bottom = hasBar
+      ? Math.round(Math.max(0, window.innerHeight - rect.top) + VOLUME_WHEEL_GAP)
+      : 110;
+
+    if (volumePainted.visible !== true) {
+      volumeEl.style.display = 'flex';
+      volumePainted.visible = true;
+      volumePainted.bottom = '';
+    }
+    if (volumePainted.bottom !== bottom) {
+      volumeEl.style.bottom = bottom + 'px';
+      volumePainted.bottom = bottom;
+    }
+  }
+
+  function volumeIcon(withWaves) {
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '15');
+    svg.setAttribute('height', '15');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.style.cssText = 'display:block;flex:0 0 auto;color:#f4f4f5';
+
+    var cone = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    cone.setAttribute('d', 'M4 9.4h3.2L12 5.4v13.2L7.2 14.6H4z');
+    cone.setAttribute('fill', 'currentColor');
+    svg.appendChild(cone);
+
+    var wave = function (d) {
+      var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', 'currentColor');
+      path.setAttribute('stroke-width', '1.8');
+      path.setAttribute('stroke-linecap', 'round');
+      return path;
+    };
+
+    if (withWaves) {
+      svg.appendChild(wave('M15.6 9.3a4.2 4.2 0 0 1 0 5.4'));
+      svg.appendChild(wave('M18.3 6.9a7.6 7.6 0 0 1 0 10.2'));
+    } else {
+      svg.appendChild(wave('M15.6 9.4l5 5.2'));
+      svg.appendChild(wave('M20.6 9.4l-5 5.2'));
+    }
+    return svg;
+  }
+
+  function buildVolumeControl() {
+    if (volumeEl && volumeEl.isConnected) return volumeEl;
+
+    var el = document.createElement('div');
+    el.id = 'ytmse-volume';
+    el.setAttribute('role', 'slider');
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('aria-label', 'Volume');
+    el.setAttribute('aria-valuemin', '0');
+    el.setAttribute('aria-valuemax', '100');
+    el.style.cssText = [
+      'position:fixed',
+      'right:18px',
+      'bottom:110px',
+      'z-index:2147483647',
+      'display:flex',
+      'align-items:center',
+      'gap:9px',
+      'padding:8px 12px 8px 10px',
+      'border-radius:999px',
+      'background:rgba(18,18,21,.86)',
+      'border:1px solid rgba(255,255,255,.14)',
+      'box-shadow:0 12px 30px -14px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.06)',
+      'color:#f4f4f5',
+      'font:600 11px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif',
+      'letter-spacing:.01em',
+      'cursor:pointer',
+      'opacity:.9',
+      'user-select:none',
+      'transform-origin:100% 50%',
+      'transition:opacity .16s ease,transform .16s ease,border-color .16s ease,background .16s ease'
+    ].join(';');
+
+    var icon = document.createElement('span');
+    icon.id = 'ytmse-vol-icon';
+    icon.style.cssText = 'display:flex;align-items:center;justify-content:center;width:15px;height:15px';
+    volumeIconOn = volumeIcon(true);
+    volumeIconOff = volumeIcon(false);
+    volumeIconOff.style.display = 'none';
+    icon.appendChild(volumeIconOn);
+    icon.appendChild(volumeIconOff);
+
+    var track = document.createElement('div');
+    track.style.cssText = [
+      'position:relative',
+      'width:84px',
+      'height:6px',
+      'border-radius:999px',
+      'background:rgba(255,255,255,.16)',
+      'flex:0 0 auto'
+    ].join(';');
+
+    var fill = document.createElement('div');
+    fill.id = 'ytmse-vol-fill';
+    fill.style.cssText = [
+      'position:absolute',
+      'left:0',
+      'top:0',
+      'bottom:0',
+      'width:0%',
+      'border-radius:999px',
+      'background:linear-gradient(90deg,#ff7a7a,#ff2d2d)',
+      'box-shadow:0 0 10px rgba(255,45,45,.35)',
+      'transition:width .2s cubic-bezier(.2,.8,.2,1),background .2s ease'
+    ].join(';');
+
+    var thumb = document.createElement('div');
+    thumb.id = 'ytmse-vol-thumb';
+    thumb.style.cssText = [
+      'position:absolute',
+      'top:50%',
+      'left:0%',
+      'width:12px',
+      'height:12px',
+      'margin:-6px 0 0 -6px',
+      'border-radius:50%',
+      'background:#fff',
+      'box-shadow:0 2px 6px rgba(0,0,0,.55),0 0 0 2px rgba(255,45,45,.55)',
+      'transition:left .2s cubic-bezier(.2,.8,.2,1),box-shadow .2s ease'
+    ].join(';');
+
+    var value = document.createElement('span');
+    value.id = 'ytmse-vol-value';
+    value.style.cssText = [
+      'min-width:32px',
+      'text-align:right',
+      'color:rgba(255,255,255,.78)',
+      'font-variant-numeric:tabular-nums',
+      'transition:color .16s ease'
+    ].join(';');
+
+    track.appendChild(fill);
+    track.appendChild(thumb);
+    el.appendChild(icon);
+    el.appendChild(track);
+    el.appendChild(value);
+
+    el.addEventListener('wheel', onVolumeWheel, { passive: false });
+    el.addEventListener('click', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleVolumeMute();
+    });
+    el.addEventListener('keydown', onVolumeKey);
+    el.addEventListener('mouseenter', function () {
+      el.style.opacity = '1';
+      el.style.transform = 'scale(1.03)';
+      el.style.background = 'rgba(26,26,30,.95)';
+      el.style.borderColor = 'rgba(255,255,255,.24)';
+    });
+    el.addEventListener('mouseleave', function () {
+      el.style.opacity = '.9';
+      el.style.transform = 'scale(1)';
+      el.style.background = 'rgba(18,18,21,.86)';
+      el.style.borderColor = 'rgba(255,255,255,.14)';
+    });
+
+    (document.body || document.documentElement).appendChild(el);
+    volumeEl = el;
+    volumeFill = fill;
+    volumeThumb = thumb;
+    volumeValue = value;
+    volumePainted = { pct: -1, muted: null, visible: null, bottom: '' };
+    positionVolumeControl();
+    paintVolume();
+    popIn(el);
+    log('volume control ready');
+    return el;
+  }
+
+  /** Called from boot() and scan(): builds the pill once, then keeps it glued to
+      the player bar as the SPA re-renders. */
+  function syncVolumeControl() {
+    if (!volumeEl || !volumeEl.isConnected) {
+      volumeEl = null;
+      volumeFill = null;
+      volumeThumb = null;
+      volumeValue = null;
+      volumeIconOn = null;
+      volumeIconOff = null;
+      buildVolumeControl();
+      return;
+    }
+    // scan() also runs on every DOM mutation; a layout read per mutation would
+    // be wasteful, so reposition a few times a second at most.
+    var now = Date.now();
+    if (now - volumeSyncAt < 400) return;
+    volumeSyncAt = now;
+    positionVolumeControl();
+    paintVolume();
+  }
+
+  // ---------------------------------------------------------------------------
   // transport
   // ---------------------------------------------------------------------------
   /* The popup drives playback by clicking YouTube Music's own controls, so the
@@ -517,6 +930,7 @@
   /** Called by the poll + mutation observer. Idempotent and cheap. */
   function scan() {
     try {
+      syncVolumeControl();
       var found = findVideo();
       if (!found) {
         // Video may have been removed mid-navigation; drop the stale graph.
@@ -798,6 +1212,9 @@
   // ---------------------------------------------------------------------------
 
   function boot() {
+    // Build the volume pill right away; it must not wait on storage.
+    syncVolumeControl();
+
     loadConfig(function () {
       scan();
       apply();
@@ -814,6 +1231,14 @@
     try {
       document.addEventListener('play', resumeNow, true);
       document.addEventListener('playing', resumeNow, true);
+    } catch (e) {
+      /* ignore */
+    }
+
+    // The fader mirrors volume changes made anywhere else on the page.
+    try {
+      document.addEventListener('volumechange', paintVolume, true);
+      window.addEventListener('resize', positionVolumeControl);
     } catch (e) {
       /* ignore */
     }
@@ -951,6 +1376,17 @@
           paused: videoEl ? videoEl.paused : null,
           muted: videoEl ? videoEl.muted : null,
           volume: videoEl ? videoEl.volume : null,
+          fader: (function () {
+            var el = document.getElementById('ytmse-volume');
+            if (!el) return { present: false };
+            var rect = el.getBoundingClientRect();
+            return {
+              present: true,
+              visible: el.isConnected && getComputedStyle(el).display !== 'none',
+              rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+              volume: readVolume()
+            };
+          })(),
           shufflePref: shufflePref,
           ad: adMuted,
           chainMuted: chain && !chain.disposed && chain.isMuted ? chain.isMuted() : null,
@@ -968,7 +1404,9 @@
         return true;
       },
       frame: analyseFrame,
-      command: playerCommand
+      command: playerCommand,
+      setVolume: applyVolume,
+      toggleMute: toggleVolumeMute
     };
   } catch (e) {
     /* debug surface must never break the extension */
