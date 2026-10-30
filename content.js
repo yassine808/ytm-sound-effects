@@ -17,7 +17,7 @@
   }
 
   var SoundChain = window.YTMAudio.SoundChain;
-  var BUILD = '0.7.1';
+  var BUILD = '0.7.2';
 
   // Lives in the console so a stale content script is obvious at a glance.
   try {
@@ -839,6 +839,30 @@
         return { ok: true, action: 'shuffle', shuffle: next };
       }
 
+      if (cmd === 'volume') {
+        var wanted = Number(value);
+        if (!isFinite(wanted)) return { ok: false, reason: 'bad volume' };
+        var applied = applyVolume(wanted);
+        var after = readVolume();
+        return {
+          ok: true,
+          action: 'volume',
+          volume: applied,
+          muted: after ? after.muted : false
+        };
+      }
+
+      if (cmd === 'mute') {
+        toggleVolumeMute();
+        var muted = readVolume();
+        return {
+          ok: true,
+          action: 'mute',
+          volume: muted ? muted.pct : 0,
+          muted: muted ? muted.muted : false
+        };
+      }
+
       return { ok: false, reason: 'unknown command' };
     } catch (e) {
       return { ok: false, reason: e && e.message ? e.message : 'command failed' };
@@ -1345,6 +1369,7 @@
       currentTime: transport.currentTime,
       duration: transport.duration,
       shuffle: transport.shuffle,
+      volume: readVolume(),
       enabled: config.enabled !== false
     };
 

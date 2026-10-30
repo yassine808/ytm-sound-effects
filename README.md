@@ -23,7 +23,7 @@ Works in Brave and other Chromium browsers.
 - 10-band EQ, bass, air, punch, warmth, width, reverb, echo
 - Presets and saved profiles
 - Previous / play-pause / next / shuffle, with click or drag seeking
-- Wheel-adjusted volume fader above the player bar
+- Volume slider in the popup (scroll or drag), plus a scroll pill above the page player bar
 - Works from any tab, and stays live in whichever YouTube Music tab is open
 - Live spectrum, response curve, and ad silence
 

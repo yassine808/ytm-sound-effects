@@ -280,6 +280,89 @@
     els.shuffleBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
   }
 
+  // ---------------------------------------------------------------------------
+  // volume: slider in the player card, driven by the content script
+  // ---------------------------------------------------------------------------
+
+  var VOL_STEP = 5;
+  var VOL_WHEEL_PX = 50;
+
+  var vol = {
+    pct: 0,
+    muted: false,
+    enabled: false,
+    dragging: false,
+    wheelAccum: 0,
+    holdUntil: 0,
+    lastSendAt: 0
+  };
+
+  function applyVolumeUi(pct, muted) {
+    vol.pct = Math.max(0, Math.min(100, Math.round(isFinite(pct) ? pct : 0)));
+    vol.muted = !!muted;
+    var shown = vol.muted ? 0 : vol.pct;
+
+    if (els.volFill) els.volFill.style.width = shown + '%';
+    if (els.volHead) els.volHead.style.left = shown + '%';
+    if (els.volValue) els.volValue.textContent = vol.muted ? 'muted' : String(vol.pct);
+
+    if (els.volume) {
+      els.volume.classList.toggle('is-muted', vol.muted);
+      els.volume.classList.toggle('is-disabled', !vol.enabled);
+      els.volume.setAttribute('aria-valuenow', String(shown));
+      els.volume.setAttribute('aria-valuetext', vol.muted ? 'Muted' : vol.pct + '%');
+      els.volume.setAttribute('aria-disabled', vol.enabled ? 'false' : 'true');
+    }
+    if (els.volBtn) {
+      els.volBtn.disabled = !vol.enabled;
+      var label = vol.muted ? 'Unmute' : 'Mute';
+      els.volBtn.setAttribute('aria-label', label);
+      els.volBtn.title = label;
+    }
+  }
+
+  function bumpVolumeValue() {
+    var el = els.volValue;
+    if (!el) return;
+    el.classList.remove('is-bump');
+    // Force a reflow so the animation restarts even on rapid wheel notches.
+    void el.offsetWidth;
+    el.classList.add('is-bump');
+  }
+
+  /** Optimistic update + command; the next frames confirm or correct it. */
+  function setVolume(pct, fromUser) {
+    var next = Math.max(0, Math.min(100, Math.round(pct)));
+    vol.holdUntil = performance.now() + 450;
+    applyVolumeUi(next, false);
+    if (fromUser) bumpVolumeValue();
+    sendCommand('volume', next);
+  }
+
+  function toggleMuteUi() {
+    if (!vol.enabled) return;
+    vol.holdUntil = performance.now() + 450;
+    applyVolumeUi(vol.pct, !vol.muted);
+    bumpVolumeValue();
+    sendCommand('mute');
+  }
+
+  function volFraction(clientX) {
+    var rail = els.volRail;
+    if (!rail || !isFinite(clientX)) return 0;
+    var rect = rail.getBoundingClientRect();
+    if (!rect.width) return 0;
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  }
+
+  function commitVolumeAt(clientX) {
+    var pct = Math.round(volFraction(clientX) * 100);
+    vol.holdUntil = performance.now() + 450;
+    applyVolumeUi(pct, false);
+    bumpVolumeValue();
+    sendCommand('volume', pct);
+  }
+
   function showProgress(seconds) {
     var pct = transport.duration > 0
       ? Math.max(0, Math.min(1, seconds / transport.duration))
@@ -312,6 +395,13 @@
   /** One analyser frame also carries the transport snapshot (~18 fps). */
   function renderTransport(frame) {
     if (!frame || typeof frame !== 'object') return;
+
+    // Volume rides on the same frames; the popup keeps the last word for a
+    // moment after a user change so the slider does not flicker backwards.
+    if (frame.volume && typeof frame.volume.pct === 'number' &&
+        !vol.dragging && performance.now() >= vol.holdUntil) {
+      applyVolumeUi(frame.volume.pct, frame.volume.muted);
+    }
 
     var duration = Number(frame.duration);
     var current = Number(frame.currentTime);
@@ -379,6 +469,7 @@
 
   function setTransportEnabled(on) {
     transport.enabled = !!on;
+    vol.enabled = !!on;
     if (!transport.enabled) {
       transport.tabId = null;
       transport.duration = 0;
@@ -393,6 +484,7 @@
     [els.prevBtn, els.playBtn, els.nextBtn, els.shuffleBtn].forEach(function (button) {
       if (button) button.disabled = !transport.enabled;
     });
+    applyVolumeUi(vol.pct, vol.muted);
     if (els.progress) {
       els.progress.setAttribute('aria-disabled', transport.enabled ? 'false' : 'true');
       els.progress.tabIndex = transport.enabled ? 0 : -1;
@@ -1027,6 +1119,12 @@
     els.progressRail = els.progress ? els.progress.querySelector('.progress-rail') : null;
     els.progressFill = document.getElementById('progressFill');
     els.progressHead = document.getElementById('progressHead');
+    els.volume = document.getElementById('volume');
+    els.volBtn = document.getElementById('volBtn');
+    els.volRail = els.volume ? els.volume.querySelector('.vol-rail') : null;
+    els.volFill = document.getElementById('volFill');
+    els.volHead = document.getElementById('volHead');
+    els.volValue = document.getElementById('volValue');
     els.curTime = document.getElementById('curTime');
     els.durTime = document.getElementById('durTime');
     els.vizCanvas = document.getElementById('viz');
@@ -1092,6 +1190,114 @@
       applyShuffle(transport.shuffle !== true);
       sendCommand('shuffle');
     });
+
+    if (els.volume) {
+      // Wheel over the volume row is the primary way to change it.
+      els.volume.addEventListener('wheel', function (event) {
+        if (!vol.enabled) return;
+        event.preventDefault();
+        var delta = event.deltaY;
+        if (!isFinite(delta) || delta === 0) return;
+        if (event.deltaMode === 1) delta *= 16; // lines
+        else if (event.deltaMode === 2) delta *= 100; // pages
+
+        vol.wheelAccum += delta;
+        var notches = vol.wheelAccum < 0
+          ? Math.ceil(vol.wheelAccum / VOL_WHEEL_PX)
+          : Math.floor(vol.wheelAccum / VOL_WHEEL_PX);
+        if (!notches) return;
+        vol.wheelAccum -= notches * VOL_WHEEL_PX;
+        // Scrolling up (negative delta) is louder.
+        setVolume(vol.pct - notches * VOL_STEP, true);
+      }, { passive: false });
+
+      els.volBtn.addEventListener('click', function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleMuteUi();
+      });
+
+      var finishVolDrag = function (event, commit) {
+        if (!vol.dragging) return;
+        vol.dragging = false;
+        els.volume.classList.remove('is-dragging');
+        if (els.volume.hasPointerCapture && event.pointerId != null) {
+          try {
+            if (els.volume.hasPointerCapture(event.pointerId)) {
+              els.volume.releasePointerCapture(event.pointerId);
+            }
+          } catch (e) {
+            /* ignore */
+          }
+        }
+        if (commit && isFinite(event.clientX)) commitVolumeAt(event.clientX);
+        vol.holdUntil = performance.now() + 450;
+      };
+
+      els.volume.addEventListener('pointerdown', function (event) {
+        if (!vol.enabled) return;
+        if (event.target.closest && event.target.closest('.vol-btn')) return;
+        if (event.button !== undefined && event.button !== 0) return;
+        event.preventDefault();
+        vol.dragging = true;
+        els.volume.classList.add('is-dragging');
+        if (els.volume.setPointerCapture) {
+          try {
+            els.volume.setPointerCapture(event.pointerId);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+        commitVolumeAt(event.clientX);
+      });
+
+      els.volume.addEventListener('pointermove', function (event) {
+        if (!vol.dragging) return;
+        var pct = Math.round(volFraction(event.clientX) * 100);
+        applyVolumeUi(pct, false);
+        vol.holdUntil = performance.now() + 450;
+        var now = performance.now();
+        if (now - vol.lastSendAt >= 90) {
+          vol.lastSendAt = now;
+          sendCommand('volume', pct);
+        }
+      });
+
+      els.volume.addEventListener('pointerup', function (event) {
+        finishVolDrag(event, true);
+      });
+
+      els.volume.addEventListener('pointercancel', function (event) {
+        finishVolDrag(event, false);
+      });
+
+      // Releasing outside the popup still commits the last previewed level.
+      document.addEventListener('pointerup', function (event) {
+        if (!vol.dragging) return;
+        if (els.volume.contains(event.target)) return;
+        finishVolDrag(event, true);
+      });
+
+      els.volume.addEventListener('keydown', function (event) {
+        if (!vol.enabled) return;
+        if (event.key === 'ArrowUp' || event.key === 'ArrowRight') {
+          event.preventDefault();
+          setVolume(vol.pct + VOL_STEP, true);
+        } else if (event.key === 'ArrowDown' || event.key === 'ArrowLeft') {
+          event.preventDefault();
+          setVolume(vol.pct - VOL_STEP, true);
+        } else if (event.key === 'Home') {
+          event.preventDefault();
+          setVolume(0, true);
+        } else if (event.key === 'End') {
+          event.preventDefault();
+          setVolume(100, true);
+        } else if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          toggleMuteUi();
+        }
+      });
+    }
 
     if (els.progress) {
       var finishSeek = function (event, commit) {

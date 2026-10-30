@@ -187,8 +187,68 @@ main#controls.is-off, body.is-off main#controls { opacity: 0.4; filter: saturate
 }
 .time-sep { color: var(--dim); }
 
-.progress { margin-top: 6px; padding: 6px 0; cursor: pointer; touch-action: none; user-select: none; }
-.progress-rail {
+/* ---------- Volume row ---------- */
+.volume {
+  display: flex; align-items: center; gap: 7px;
+  margin-top: 2px; padding: 1px 0 3px;
+  cursor: pointer; touch-action: none; user-select: none;
+  transition: opacity 0.2s var(--ease);
+}
+.volume.is-disabled { opacity: 0.4; }
+.volume.is-disabled, .volume.is-disabled * { cursor: default; }
+.volume:focus-visible { outline: none; }
+.volume:focus-visible .vol-rail { box-shadow: 0 0 0 3px rgba(255, 45, 69, 0.25); }
+
+.vol-btn {
+  display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  color: var(--muted); transition: color 0.2s, background 0.2s, transform 0.22s var(--ease);
+}
+.vol-btn:not(:disabled):hover { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+.vol-btn:not(:disabled):active { transform: scale(0.88); }
+.vol-btn:disabled { cursor: default; }
+.vol-btn svg { width: 15px; height: 15px; }
+.vol-btn .ic-vol-off { display: none; }
+.volume.is-muted .ic-vol-on { display: none; }
+.volume.is-muted .ic-vol-off { display: block; }
+.volume.is-muted .vol-btn { color: var(--red-2); }
+
+.vol-rail {
+  position: relative; flex: 1 1 auto; height: 4px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  transition: height 0.2s var(--ease), box-shadow 0.2s var(--ease);
+}
+.volume:hover .vol-rail { height: 6px; }
+.vol-fill {
+  position: absolute; inset: 0 auto 0 0; width: 0; border-radius: inherit;
+  background: linear-gradient(90deg, #8a0f1f, var(--red) 70%, var(--red-2));
+  box-shadow: 0 0 10px var(--glow);
+  transition: width 0.18s var(--ease), background 0.2s ease;
+}
+.volume.is-dragging .vol-fill, .volume.is-dragging .vol-head { transition: none; }
+.vol-head {
+  position: absolute; top: 50%; left: 0; width: 10px; height: 10px; margin: -5px 0 0 -5px;
+  border-radius: 50%; background: #fff;
+  box-shadow: 0 0 0 3px var(--glow), 0 1px 4px rgba(0, 0, 0, 0.5);
+  transform: scale(0);
+  transition: transform 0.22s var(--ease), left 0.18s var(--ease);
+}
+.volume:hover .vol-head, .volume:focus-visible .vol-head, .volume.is-dragging .vol-head { transform: scale(1); }
+.volume.is-muted .vol-fill { background: rgba(255, 255, 255, 0.35); box-shadow: none; }
+.volume.is-muted .vol-head { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.18), 0 1px 4px rgba(0, 0, 0, 0.5); }
+
+.vol-value {
+  min-width: 34px; text-align: right; font-size: 10.5px; font-weight: 600;
+  font-variant-numeric: tabular-nums; letter-spacing: 0.02em; color: var(--muted);
+  transform-origin: 100% 50%;
+}
+.vol-value.is-bump { animation: volBump 0.28s var(--ease); }
+@keyframes volBump {
+  0% { transform: scale(1); color: var(--muted); }
+  40% { transform: scale(1.22); color: var(--text); }
+  100% { transform: scale(1); color: var(--muted); }
+}
+
+.progress { margin-top: 6px; padding: 6px 0; cursor: pointer; touch-action: none; user-select: none; }.progress-rail {
   position: relative; display: block; height: 4px; border-radius: 999px;
   background: rgba(255, 255, 255, 0.1); transition: height 0.2s var(--ease);
 }
@@ -391,6 +451,20 @@ body.has-note .foot { display: none; }</style>
             </svg>
           </button>
           <span class="time" aria-hidden="true"><span id="curTime">0:00</span><span class="time-sep">/</span><span id="durTime">0:00</span></span>
+        </div>
+        <div class="volume is-disabled" id="volume" role="slider" tabindex="0" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-disabled="true">
+          <button type="button" id="volBtn" class="vol-btn" aria-label="Mute" title="Mute" disabled>
+            <svg class="ic-vol-on" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 9.4h3.2L12 5.4v13.2L7.2 14.6H4z" fill="currentColor" />
+              <path d="M15.6 9.3a4.2 4.2 0 0 1 0 5.4M18.3 6.9a7.6 7.6 0 0 1 0 10.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+            <svg class="ic-vol-off" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 9.4h3.2L12 5.4v13.2L7.2 14.6H4z" fill="currentColor" />
+              <path d="M15.6 9.4l5 5.2M20.6 9.4l-5 5.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </button>
+          <span class="vol-rail"><span class="vol-fill" id="volFill"></span><span class="vol-head" id="volHead" aria-hidden="true"></span></span>
+          <span class="vol-value" id="volValue">&mdash;</span>
         </div>
         <div class="progress" id="progress" role="slider" aria-label="Track progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
           <span class="progress-rail">
